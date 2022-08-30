@@ -735,9 +735,14 @@ void Solve_QuasiStatiñElasticProblem_withCracks()
 	std::vector<Point<double>> Solution; //output
 
 
+	clock_t t_after = clock();
+	double start = omp_get_wtime();
+
+
 	//char properties_file[1000] = { "E:/+cyl/800el/param.txt" };
 	//char properties_file[1000] = { "D:/Documents/universiti/MySOFT/TEST/box_200x200x200_crañks/800el_disc/base_properties.txt" };
-	char properties_file[1000] = { "E:/27_hydrofracture/area_200x200x200/340kel/Crack_30x200_Z=100_Y0grad/param.txt" };
+	//char properties_file[1000] = { "E:/27_hydrofracture/area_200x200x200/340kel/Crack_30x200_Z=100_Y0grad/param.txt" };
+	char properties_file[1000] = { "D:/Babenko_2022/1cracks/XFEM/50/param.txt" };
 	//char properties_file[1000] = { "base_properties.txt" };
 	printf_s("The properties file contains the information:\n==========================================\n");
 	printf_s("\tDo you need to print to a log file? 0-false/1-true\n");
@@ -753,7 +758,7 @@ void Solve_QuasiStatiñElasticProblem_withCracks()
 	
 
 	printf_s("Enter the name of the properties file: ");
-	scanf_s("%s", &properties_file);
+	//scanf_s("%s", &properties_file);
 
 	FILE *f_properties;
 	fopen_s(&f_properties, properties_file, "r");
@@ -1198,9 +1203,19 @@ void Solve_QuasiStatiñElasticProblem_withCracks()
 			Solution //output
 		);
 
+		double end = omp_get_wtime();
+		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+		FILE* ftime;
+		char ftime_name[1000];
+		sprintf_s(ftime_name, "%s/time_result.dat", base_result_directory);
+		fopen_s(&ftime, ftime_name, "w");
+		fprintf_s(ftime, "start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+		fclose(ftime);
+
 		//output solution
 		printf_s("Print the mech result into .dat file... ");
-		{
+		{ //via full 3D mesh
 			FILE *fout_tech;
 			char name_u_tech[5000];
 			sprintf_s(name_u_tech, "%s/U.dat", result_directory);
@@ -1212,7 +1227,7 @@ void Solve_QuasiStatiñElasticProblem_withCracks()
 			sprintf_s(name_v_tmp[0], "sigma_xx");
 			sprintf_s(name_v_tmp[1], "sigma_yy");
 			sprintf_s(name_v_tmp[2], "sigma_zz");
-			sprintf_s(name_v_tmp[3], "sigma_inv");
+			sprintf_s(name_v_tmp[3], "VonMises_stress");
 			sprintf_s(name_v_tmp[4], "eps_inv");
 			sprintf_s(name_v_tmp[5], "material");
 			for (int i = 0; i < name_value.size(); i++)
@@ -1254,6 +1269,11 @@ void Solve_QuasiStatiñElasticProblem_withCracks()
 				double eps_inv = sqrt((eps[0] - eps[1])*(eps[0] - eps[1]) + (eps[1] - eps[2])*(eps[1] - eps[2]) + (eps[2] - eps[0])*(eps[2] - eps[0]) +
 					3 * (eps[3] * eps[3] + eps[4] * eps[4] + eps[5] * eps[5]) / 2.) * sqrt(2.) / 3;
 
+				double mises_stress = sqrt((sigma[0] - sigma[1]) * (sigma[0] - sigma[1])
+					+ (sigma[1] - sigma[2]) * (sigma[1] - sigma[2])
+					+ (sigma[0] - sigma[2]) * (sigma[0] - sigma[2])
+					+ 6 * (sigma[3] * sigma[3] + sigma[4] * sigma[4] + sigma[5] * sigma[5]) / 2.0);
+
 				value[0][i] = sigma[0];
 				value[1][i] = sigma[1];
 				value[2][i] = sigma[2];
@@ -1262,52 +1282,140 @@ void Solve_QuasiStatiñElasticProblem_withCracks()
 				value[4][i] = eps[1];
 				value[5][i] = eps[2];
 
-				value[3][i] = U.x;
+				value[3][i] = mises_stress;
 				value[4][i] = U.y;
-				value[5][i] = U.z;
+				value[5][i] = element->GetDOFsCount() <= 4 ? 0 : 1;
 
-				/*value[3][i] = sigma_inv;
-				value[4][i] = eps_inv;
-				value[5][i] = 0;*/
-
-				if (sigma_inv > sigma_inv_max)
-				{
-					sigma_inv_max = sigma_inv;
-					elem_sigma_max = i;
-				}
-
-				/*if (base_grid.elem[i].get_id_domain() == 1)
-				{
-				value[0][i] = 0;
+				/*value[0][i] = 0;
 				value[1][i] = 0;
 				value[2][i] = 0;
 
 				value[3][i] = 0;
-				value[4][i] = 0;
-				value[5][i] = 0;
-				}*/
-
-
-				/*value[0][i] = eps[0];
-				value[1][i] = eps[1];
-				value[2][i] = eps[2];*/
+				value[4][i] = 0;*/
+				value[5][i] = element->GetDOFsCount();
+				
 			}
-			for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
+			/*for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
 			{
 				solver_grid.MoveTheVertex(solver_grid.accordance_DOF_and_vertex[id_DOF], Solution[id_DOF]);
-			}
+			}*/
 			solver_grid.printTecPlot3D(fout_tech, value, name_value, name_in_file);
-			for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
+			/*for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
 			{
 				solver_grid.MoveTheVertex(solver_grid.accordance_DOF_and_vertex[id_DOF], Solution[id_DOF]*(-1));
-			}
+			}*/
 			fclose(fout_tech);
+		}
+		if (true) //via face 2D mesh
+		{
+			math::SimpleGrid out_grid;
+			char name_grid[5000];
+			sprintf_s(name_grid, "%s/Face_OYZ_forOut.dat", mesh_directory);
+			out_grid.ReadFromSalomeDat(name_grid, 2);
+
+			FILE* fout_tech;
+			FILE* fout_res;
+			char name_u_tech[5000];
+			char name_res[5000];
+			sprintf_s(name_u_tech, "%s/U_in_face.dat", result_directory);
+			sprintf_s(name_res, "%s/u_z_in_face.txt", result_directory);
+			fopen_s(&fout_tech, name_u_tech, "w");
+			fopen_s(&fout_res, name_res, "w");
+			
+			char name_in_file[1000];
+			sprintf_s(name_in_file, "Elastic");
+			std::vector<std::vector<char>> name_value(6);
+			char name_v_tmp[6][100];
+			sprintf_s(name_v_tmp[0], "sigma_xx");
+			sprintf_s(name_v_tmp[1], "sigma_yy");
+			sprintf_s(name_v_tmp[2], "sigma_zz");
+			sprintf_s(name_v_tmp[3], "VonMises_stress");
+			sprintf_s(name_v_tmp[4], "eps_inv");
+			sprintf_s(name_v_tmp[5], "material");
+			for (int i = 0; i < name_value.size(); i++)
+			{
+				name_value[i].resize(100);
+				for (int j = 0; j < name_value[i].size(); j++)
+				{
+					name_value[i][j] = name_v_tmp[i][j];
+				}
+			}
+			std::vector<std::vector<double>> value(3 * 2);
+			value[0].resize(out_grid.nvtr.size());
+			value[1].resize(out_grid.nvtr.size());
+			value[2].resize(out_grid.nvtr.size());
+			value[3].resize(out_grid.nvtr.size());
+			value[4].resize(out_grid.nvtr.size());
+			value[5].resize(out_grid.nvtr.size());
+			double sigma_inv_max = 0;
+			int elem_sigma_max = 0;
+			for (int i = 0; i < out_grid.nvtr.size(); i++)
+			{
+
+				Point<double> Centr;
+				for (int ii = 0; ii < out_grid.nvtr[i].size(); ii++)
+				{
+					Centr += out_grid.xyz[out_grid.nvtr[i][ii]] / 3.0;
+				}
+
+				double len;
+				int element_id = abs(solver_grid.GetNearestElementID(Centr, len));
+				auto element = solver_grid.GetElement(element_id);
+				
+
+				Point<double> U = solver_grid.GetSolutionInPoint(element_id, Centr, Solution);
+				Point<Point<double>> dU = solver_grid.GetDerevativeFromSolutionInPoint(element_id, Centr, Solution);
+
+				double eps[6] = { dU.x.x, dU.y.y, dU.z.z, dU.x.y + dU.y.x, dU.y.z + dU.z.y, dU.x.z + dU.z.x };
+				double v = solver_grid.GetDomain(0)->forMech.v;
+				double E = solver_grid.GetDomain(0)->forMech.GetE(0);
+				double a = v / (1 - v);
+				double b = (1 - 2 * v) / (2 * (1 - v));
+				double k = E * (1 - v) / ((1 + v) * (1 - v));
+				double sigma[6] = { k * (eps[0] * 1 + eps[1] * a + eps[2] * a), k * (eps[0] * a + eps[1] * 1 + eps[2] * a), k * (eps[0] * a + eps[1] * a + eps[2] * 1),
+					k * (2 * eps[3] * b), k * (2 * eps[4] * b), k * (2 * eps[5] * b) };
+				double sigma_inv = sqrt((sigma[0] - sigma[1]) * (sigma[0] - sigma[1]) + (sigma[1] - sigma[2]) * (sigma[1] - sigma[2]) + (sigma[2] - sigma[0]) * (sigma[2] - sigma[0]) +
+					6 * (sigma[3] * sigma[3] + sigma[4] * sigma[4] + sigma[5] * sigma[5])) / sqrt(2.);
+				double eps_inv = sqrt((eps[0] - eps[1]) * (eps[0] - eps[1]) + (eps[1] - eps[2]) * (eps[1] - eps[2]) + (eps[2] - eps[0]) * (eps[2] - eps[0]) +
+					3 * (eps[3] * eps[3] + eps[4] * eps[4] + eps[5] * eps[5]) / 2.) * sqrt(2.) / 3;
+
+				double mises_stress = sqrt((sigma[0] - sigma[1]) * (sigma[0] - sigma[1])
+					+ (sigma[1] - sigma[2]) * (sigma[1] - sigma[2])
+					+ (sigma[0] - sigma[2]) * (sigma[0] - sigma[2])
+					+ 6 * (sigma[3] * sigma[3] + sigma[4] * sigma[4] + sigma[5] * sigma[5]) / 2.0);
+
+				value[0][i] = sigma[0];
+				value[1][i] = sigma[1];
+				value[2][i] = sigma[2];
+
+				value[3][i] = eps[0];
+				value[4][i] = eps[1];
+				value[5][i] = eps[2];
+
+				value[3][i] = mises_stress;
+				value[4][i] = U.y;
+				value[5][i] = element->GetDOFsCount() <= 4 ? 0 : 1;
+
+				fprintf_s(fout_res, "%.15e\n", U.z);
+
+				/*value[0][i] = 0;
+				value[1][i] = 0;
+				value[2][i] = 0;
+
+				value[3][i] = 0;
+				value[4][i] = 0;*/
+				value[5][i] = element->GetDOFsCount();
+
+			}
+
+			out_grid.printTecPlot3D(fout_tech, value, name_value, name_in_file);
+			fclose(fout_res);
 		}
 		printf_s("\t complite\n");
 
 		//MultiXFEM::CrackPropagation_3D(solver_grid, Solution, result_directory, id_STEP);
 		//MultiXFEM::CrackPropagation_3D_Cherepanov(solver_grid, Solution, result_directory, id_STEP);
-		MultiXFEM::CrackPropagation_3D_Cherepanov_v2(solver_grid, Solution, result_directory, id_STEP);
+		//MultiXFEM::CrackPropagation_3D_Cherepanov_v2(solver_grid, Solution, result_directory, id_STEP);
 
 		sprintf_s(cracks_directory, sizeof(cracks_directory), "%s", result_directory);
 		solver_grid.~Grid();

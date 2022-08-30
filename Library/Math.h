@@ -8,10 +8,15 @@
 #define mu0 4*M_PI*1E-7
 #define eps0 8.85*1E-12
 
+#ifndef max
+#define max(a,b)            (((a) > (b)) ? (a) : (b))
+#endif
+
 namespace math
 {
 	double SolveLengthVector(Point<double>  A, Point<double> B);
-	void ParserStringToVectorInt(char* A, std::vector<int>& B, const char* separator);
+	int ParserStringToVectorInt(char* A, std::vector<int>& B, const char* separator);
+	int ParserStringToVectorFloat(char* A, std::vector<float>& B, const char* separator);
 	template <typename T> std::vector<T> GetConfluence(std::vector<T>& A, std::vector<T>& B);
 
 	struct SimpleGrid
@@ -501,6 +506,205 @@ namespace math
 				
 			}
 		}
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <param name="fileMSH"></param>
+		/// <param name="scale"></param>
+		/// <param name="vertex_count_in_element"></param>
+		/// <param name="position_of_material"></param>
+		/// <param name="boundary_faces">в позиции 0 - номер базового тетраэдра!!!</param>
+		void ReadFromMSH_v2208(char* fileMSH, double scale, int vertex_count_in_element, int position_of_material, std::vector<std::vector<std::vector<int>>>& boundary_faces)
+		{
+			char separator[3] = { ' ', '\t', '\0' };
+			char Str[1000];
+			std::vector<int> Str_int;
+			std::vector<float> Str_float;
+			bool modified_file = false;
+
+			FILE* fin;
+
+			fopen_s(&fin, fileMSH, "r");
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+			ParserStringToVectorFloat(Str, Str_float, separator);
+			if (strcmp(Str, "2.2 0 8") || strcmp(Str, "2.2 0 8 1"))
+			{
+				printf_s("\t\t\tERROR! MSH file isn't version 2.2 0 8\n");
+			}
+			if (Str_float.size() == 4)
+			{
+				printf_s("It is modified file\n");
+				modified_file = true;
+			}
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+
+			int num_node;
+			fscanf_s(fin, "%d", &num_node);
+
+			xyz.resize(num_node);
+			for (int i = 0; i < num_node; i++)
+			{
+				int tmp;
+				fscanf_s(fin, "%d %lf %lf %lf", &tmp, &xyz[i].x, &xyz[i].y, &xyz[i].z);
+				xyz[i].x *= scale;
+				xyz[i].y *= scale;
+				xyz[i].z *= scale;
+			}
+
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+
+			int FullNum;
+			fgets(Str, sizeof(Str), fin);
+			ParserStringToVectorInt(Str, Str_int, separator);
+			//fscanf_s(fin, "%d", &FullNum);
+			FullNum = Str_int[0];
+			printf_s("FullNum = %d\n", FullNum);
+
+			//читаем ребра
+			fgets(Str, sizeof(Str), fin);
+			ParserStringToVectorInt(Str, Str_int, separator);
+			int edge_size = 0;
+			while (Str_int.size() == 8 && Str_int[1] == 1)
+			{
+				edge_size++;
+				fgets(Str, sizeof(Str), fin);
+				ParserStringToVectorInt(Str, Str_int, separator);
+			}
+			//читаем границы в элементы-точки
+			//fgets(Str, sizeof(Str), fin);
+			//Parser_String_to_VectInt(Str, Str_int, separator);
+			int face_size = 0;
+			printf_s("Str = %s", Str);
+			printf_s("Str_int = {");
+			for (int i = 0; i < Str_int.size(); i++)
+			{
+				printf_s("%d; ", Str_int[i]);
+			}
+			printf_s("}\n");
+
+			while (Str_int.size() == 8 && Str_int[1] == 2)
+			{
+				face_size++;
+				int offset = 5;
+				std::vector<std::vector<int>> tmp_vect2;
+				std::vector<int> tmp_vect1;
+
+				while (Str_int[3] >= boundary_faces.size())
+				{
+					boundary_faces.push_back(tmp_vect2);
+				}
+				boundary_faces[Str_int[3]].push_back(tmp_vect1);
+
+				if (modified_file)
+				{
+					boundary_faces[Str_int[3]][boundary_faces[Str_int[3]].size() - 1].push_back(Str_int[4] - 1);
+				}
+				else {
+					boundary_faces[Str_int[3]][boundary_faces[Str_int[3]].size() - 1].push_back(-1);
+				}
+
+				for (int ii = 0; ii < 3; ii++)
+					boundary_faces[Str_int[3]][boundary_faces[Str_int[3]].size() - 1].push_back(Str_int[offset + ii] - 1);
+
+				fgets(Str, sizeof(Str), fin);
+				math::ParserStringToVectorInt(Str, Str_int, separator);
+			}
+			for (int i = 0; i < boundary_faces.size(); i++)
+			{
+				printf_s("Boundary[%d] = %d; ", i, boundary_faces[i].size());
+			}
+			printf_s("\n");
+
+			nvtr.reserve(FullNum - edge_size - face_size);
+			nvkat.reserve(FullNum - edge_size - face_size);
+			bool flag = false;
+			{
+				int i = 0;
+				//fgets(Str, sizeof(Str), fin);
+				while (Str_int.size() == 9 /*&& Str_int[0] != FullNum*/)
+				{
+					int offset = 5;
+					//if (Str_int.size() == 8) offset = 5;
+
+					std::vector<int> nums(vertex_count_in_element);
+					for (int j = 0; j < vertex_count_in_element; j++)
+					{
+						nums[j] = Str_int[offset + j] - 1;
+					}
+
+					int id_dom = Str_int[position_of_material - 1];//Str_int[3]-1;
+					nvtr.push_back(nums);
+					nvkat.push_back(id_dom);
+
+					fgets(Str, sizeof(Str), fin);
+					math::ParserStringToVectorInt(Str, Str_int, separator);
+					i++;
+				}
+			};
+			fclose(fin);
+
+			if (!modified_file)
+			{
+				printf_s("\n");
+
+				for (int id_type = 0; id_type < boundary_faces.size(); id_type++)
+				{
+					for (int id_triang = 0; id_triang < boundary_faces[id_type].size(); id_triang++)
+					{
+						printf_s("Create boundary topology %d/%d (triangle %d/%d)\r", id_type, boundary_faces.size(), id_triang, boundary_faces[id_type].size());
+						int test_vertex = -1;
+						int base_elem = -1;
+						for (int id_elem = 0; id_elem < nvtr.size(); id_elem++)
+						{
+							auto _tmp = math::GetConfluence(nvtr[id_elem], boundary_faces[id_type][id_triang]);
+							if (_tmp.size() == boundary_faces[id_type][id_triang].size() - 1)
+							{
+								base_elem = id_elem;
+								break;
+							}
+						}
+						boundary_faces[id_type][id_triang][0] = base_elem;
+					}
+				}
+
+				fopen_s(&fin, fileMSH, "w");
+				fprintf_s(fin, "$MeshFormat\n");
+				fprintf_s(fin, "2.2 0 8 1\n");
+				fprintf_s(fin, "$EndMeshFormat\n");
+				fprintf_s(fin, "$Nodes\n");
+				fprintf_s(fin, "\t%d\n", xyz.size());
+				for (int i = 0; i < xyz.size(); i++)
+				{
+					fprintf_s(fin, "\t\t%d\t%.16lf\t%.16lf\t%.16lf\n", i + 1, xyz[i].x, xyz[i].y, xyz[i].z);
+				}
+				fprintf_s(fin, "$EndNodes\n");
+				fprintf_s(fin, "$Elements\n");
+				fprintf_s(fin, "\t%d\n", FullNum);
+				int i = 0;
+				for (int b = 0; b < boundary_faces.size(); b++)
+					for (int j = 0; j < boundary_faces[b].size(); j++)
+					{
+						fprintf_s(fin, "\t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+							i + 1, 2, 3, b, boundary_faces[b][j][0] + 1,
+							boundary_faces[b][j][1] + 1, boundary_faces[b][j][2] + 1, boundary_faces[b][j][3] + 1);
+						i++;
+					}
+				for (int j = 0; j < nvtr.size(); j++)
+				{
+					fprintf_s(fin, "\t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+						i + 1, 4, 3, nvkat[j], nvkat[j],
+						nvtr[j][0] + 1, nvtr[j][1] + 1, nvtr[j][2] + 1, nvtr[j][3] + 1);
+					i++;
+				}
+				fprintf_s(fin, "$EndElements\n");
+				fclose(fin);
+
+			}
+		}
 		void WriteMSH(char* fileMSH, int position_of_material, std::vector<std::vector<std::vector<int>>>& boundary_faces)
 		{
 			FILE* fin;
@@ -537,6 +741,42 @@ namespace math
 			fprintf_s(fin, "$EndElements\n");
 			fclose(fin);
 		}
+		void WriteMSH_v2208(char* fileMSH, int position_of_material, std::vector<std::vector<std::vector<int>>>& boundary_faces)
+		{
+			FILE* fin;
+
+			fopen_s(&fin, fileMSH, "w");
+			fprintf_s(fin, "$MeshFormat\n");
+			fprintf_s(fin, "2.2 0 8 1\n");
+			fprintf_s(fin, "$EndMeshFormat\n");
+			fprintf_s(fin, "$Nodes\n");
+			fprintf_s(fin, "\t%d\n", xyz.size());
+			for (int i = 0; i < xyz.size(); i++)
+			{
+				fprintf_s(fin, "\t\t%d\t%.16lf\t%.16lf\t%.16lf\n", i + 1, xyz[i].x, xyz[i].y, xyz[i].z);
+			}
+			fprintf_s(fin, "$EndNodes\n");
+			fprintf_s(fin, "$Elements\n");
+			fprintf_s(fin, "\t%d\n", boundary_faces.size() + nvtr.size());
+			int i = 0;
+			for (int b = 0; b < boundary_faces.size(); b++)
+				for (int j = 0; j < boundary_faces[b].size(); j++)
+				{
+					fprintf_s(fin, "\t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+						i + 1, 2, 3, b, boundary_faces[b][j][0] + 1,
+						boundary_faces[b][j][1] + 1, boundary_faces[b][j][2] + 1, boundary_faces[b][j][3] + 1);
+					i++;
+				}
+			for (int j = 0; j < nvtr.size(); j++)
+			{
+				fprintf_s(fin, "\t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+					i + 1, 4, 3, nvkat[j], nvkat[j],
+					nvtr[j][0] + 1, nvtr[j][1] + 1, nvtr[j][2] + 1, nvtr[j][3] + 1);
+				i++;
+			}
+			fprintf_s(fin, "$EndElements\n");
+			fclose(fin);
+		}
 
 		int TransferIdSelfIntoGlobal(int local_id)
 		{
@@ -550,6 +790,160 @@ namespace math
 					return i;
 			}
 			return -1;
+		}
+
+
+		void CreateGrid2D_circle(Point<double> centr, double radX, double radY, int num_levels_rad)
+		{
+			int N_vertexes = 1; //центр
+			int N_elements = 0;
+			double stepX = radX / num_levels_rad;
+			double stepY = radY / num_levels_rad;
+			for (int i = 0; i < num_levels_rad; i++)
+			{
+				N_vertexes += 4 + 4 * (i); //оси + разбивка секторов
+				N_elements += 4 * (2 * i + 1);
+			}
+			this->nvtr.resize(N_elements);
+			for (int i = 0; i < N_elements; i++)
+			{
+				this->nvtr[i].resize(3);
+			}
+
+			this->xyz.resize(N_vertexes);
+			this->xyz[0] = centr;
+			for (int id_level = 0, id_vertex = 1, id_elem = 0; id_level < num_levels_rad; id_level++)
+			{
+				//допвершины в секторе
+				auto add_sector = [&id_vertex, &id_elem, id_level, centr, this](Point<double> start_point, int id_sector)->void
+				{
+					//id_vertex - номер узла на оси текущего уровн€
+
+					//собираем элементы
+					this->nvtr[id_elem][0] = id_vertex;
+					if (id_level == 0)
+						this->nvtr[id_elem][1] = 0;
+					else
+					{
+						int num_lines_v = 4 * max(0, id_level - 1);
+						int num_sector_v = 4 * ((id_level - 2) <= 0 ? 0 : (1 + id_level - 2) * (id_level - 2) / 2.0);
+						int num_in_curr_lvl = id_sector * (1 + max(0, id_level - 1));
+						this->nvtr[id_elem][1] = 1 + num_lines_v + num_sector_v + num_in_curr_lvl;
+					}
+					for (int ii = 0; ii < id_level; ii++)
+					{
+						this->nvtr[id_elem][2] = id_vertex + ii + 1;
+						id_elem++;
+
+						this->nvtr[id_elem][0] = this->nvtr[id_elem - 1][1];
+						this->nvtr[id_elem][1] = this->nvtr[id_elem - 1][2];
+						if (id_sector == 3 && ii == id_level - 1)
+						{
+							int num_lines_v = 4 * max(0, id_level - 1);
+							int num_sector_v = 4 * ((id_level - 2) <= 0 ? 0 : (1 + id_level - 2) * (id_level - 2) / 2.0);
+							int num_in_curr_lvl = 0 * (1 + max(0, id_level - 1));
+							this->nvtr[id_elem][2] = 1 + num_lines_v + num_sector_v + num_in_curr_lvl;
+						}
+						else
+							this->nvtr[id_elem][2] = this->nvtr[id_elem][0] + 1;
+
+						id_elem++;
+
+						this->nvtr[id_elem][0] = this->nvtr[id_elem - 1][1];
+						this->nvtr[id_elem][1] = this->nvtr[id_elem - 1][2];
+					}
+					if (id_sector == 3)
+					{
+						int num_lines_v = 4 * max(0, id_level);
+						int num_sector_v = 4 * ((id_level - 1) <= 0 ? 0 : (1 + id_level - 1) * (id_level - 1) / 2.0);
+						int num_in_curr_lvl = 0 * (1 + max(0, id_level));
+						this->nvtr[id_elem][2] = 1 + num_lines_v + num_sector_v + num_in_curr_lvl;
+					}
+					else
+						this->nvtr[id_elem][2] = id_vertex + id_level + 1;
+
+					id_elem++;
+
+					//собираем вершины
+					for (int ii = 1; ii <= id_level; ii++)
+					{
+						double step_angle = (90.0 / (id_level + 1)) * M_PI / 180.0 * ii;
+						//double step_angle = 90.0 / (id_level + 1);
+						//double p = cos(90.0 * M_PI / 180.0);
+						this->xyz[id_vertex + ii].x = centr.x + (this->xyz[id_vertex].x - centr.x) * cos(step_angle) - (this->xyz[id_vertex].y - centr.y) * sin(step_angle);
+						this->xyz[id_vertex + ii].y = centr.y + (this->xyz[id_vertex].x - centr.x) * sin(step_angle) + (this->xyz[id_vertex].y - centr.y) * cos(step_angle);
+						this->xyz[id_vertex + ii].z = centr.z;
+					}
+					id_vertex += 1 + id_level; //точка на оси + точки в секторе
+					return;
+				};
+
+				//сектор I
+				this->xyz[id_vertex] = centr + Point<double>(stepX * (id_level + 1), 0, 0);
+				add_sector(this->xyz[id_vertex], 0);
+
+				//сектор II
+				this->xyz[id_vertex] = centr + Point<double>(0, stepY * (id_level + 1), 0);
+				add_sector(this->xyz[id_vertex], 1);
+
+				//сектор III
+				this->xyz[id_vertex] = centr + Point<double>(-stepX * (id_level + 1), 0, 0);
+				add_sector(this->xyz[id_vertex], 2);
+
+				//сектор IV
+				this->xyz[id_vertex] = centr + Point<double>(0, -stepY * (id_level + 1), 0);
+				add_sector(this->xyz[id_vertex], 3);
+
+
+			}
+		}
+		void CreateGrid2D_rectangle(Point<double>X_botom, Point<double>X_top, int num_steps_X, int num_steps_Y)
+		{
+			int N_vertexes = (num_steps_X + 1) * (num_steps_Y + 1);
+			int N_elements = num_steps_X * num_steps_Y * 2;
+			double stepX = (X_top.x - X_botom.x) / num_steps_X;
+			double stepY = (X_top.y - X_botom.y) / num_steps_Y;
+
+			this->nvtr.resize(N_elements);
+			for (int i = 0; i < N_elements; i++)
+			{
+				this->nvtr[i].resize(3);
+			}
+			this->xyz.resize(N_vertexes);
+
+			//собираем элементы
+			int id_elem = 0;
+			for (int iy = 0; iy < num_steps_Y; iy++)
+			{
+				for (int ix = 0; ix < num_steps_X; ix++)
+				{
+
+					int start_v = ix + (num_steps_X + 1) * iy;
+
+					this->nvtr[id_elem][0] = start_v;
+					this->nvtr[id_elem][1] = start_v + 1;
+					this->nvtr[id_elem][2] = start_v + 1 + (num_steps_X + 1);
+					id_elem++;
+
+					this->nvtr[id_elem][0] = start_v;
+					this->nvtr[id_elem][1] = start_v + 1 + (num_steps_X + 1);
+					this->nvtr[id_elem][2] = start_v + (num_steps_X + 1);
+					id_elem++;
+				}
+			}
+
+			//собираем вершины
+			int id_vertex = 0;
+			for (int iy = 0; iy < num_steps_Y + 1; iy++)
+			{
+				for (int ix = 0; ix < num_steps_X + 1; ix++)
+				{
+
+					this->xyz[id_vertex].x = X_botom.x + stepX * ix;
+					this->xyz[id_vertex].y = X_botom.y + stepY * iy;
+					id_vertex++;
+				}
+			}
 		}
 
 		void printTecPlot3D(FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
@@ -621,9 +1015,56 @@ namespace math
 
 			fclose(fdat);
 		}
+		void printTecPlot3D(FILE* fdat, char* name_zone)
+		{
+			int DEL_domain = 10;
+			fprintf_s(fdat, "TITLE     = \"numerical\"\n");
+			fprintf_s(fdat, "VARIABLES = \"x\"\n \"y\"\n \"z\"\n");
+
+			int num_elem = this->nvtr.size();
+			fprintf_s(fdat, "ZONE T=\"%s\"\n", name_zone);
+			fprintf_s(fdat, " N=%d,  E=%d, F=FEBLOCK ET=", this->xyz.size(), num_elem);
+			switch (this->nvtr[0].size())
+			{
+			case 4: fprintf_s(fdat, "Tetrahedron "); break;
+			case 3: fprintf_s(fdat, "Triangle "); break;
+			default:
+				break;
+			}
+			fprintf_s(fdat, "\n");
+			fprintf_s(fdat, " VARLOCATION=(NODAL NODAL NODAL)\n");
+
+			for (int i = 0; i < this->xyz.size(); i++)
+				fprintf_s(fdat, "%.10e\n", this->xyz[i].x);
+			fprintf_s(fdat, "\n");
+			for (int i = 0; i < this->xyz.size(); i++)
+				fprintf_s(fdat, "%.10e\n", this->xyz[i].y);
+			fprintf_s(fdat, "\n");
+			for (int i = 0; i < this->xyz.size(); i++)
+				fprintf_s(fdat, "%.10e\n", this->xyz[i].z);
+			fprintf_s(fdat, "\n");
+
+			for (int i = 0; i < this->nvtr.size(); i++)
+			{
+				for (int j = 0; j < this->nvtr[i].size(); j++)
+					fprintf_s(fdat, "%d ", this->nvtr[i][j] + 1);
+
+				fprintf_s(fdat, "\n");
+			}
+
+			fclose(fdat);
+		}
 	};
 
 	//------------->algebra
+	int factorial(int A)
+	{
+		int res = 1;
+		for (int i = 2; i <= A; i++)
+			res *= i;
+		return res;
+	}
+
 	bool IsEqual(double A, double B)
 	{
 		if (abs(A - B) < 1e-10) return true;
@@ -1907,18 +2348,20 @@ namespace math
 	//------------->input|output
 	
 	//A is string with end '\0' 
-	void ParserStringToVectorFloat(char *A, std::vector<float> &B, const char *separator)
+	int ParserStringToVectorFloat(char *A, std::vector<float> &B, const char *separator)
 	{
 		std::vector<float> v_el;
 		std::vector<float>(v_el).swap(B);
 
-		printf_s("%s", separator);
+		int res = 0;
 
 		char b[21];
 		int curr_ib = 0;
-		printf_s("strlen(%s) = %d, strlen(separator) = %d\r", A, strlen(A), strlen(separator));
+		//printf_s("%s\r", A);
 		for (int ia = 0; ia < strlen(A); ia++)
 		{
+			res++;
+
 			bool flag = false;
 			for (int js = 0; js < strlen(separator); js++)
 			{
@@ -1948,19 +2391,25 @@ namespace math
 				}
 			}
 		}
+
+		return res;
 	}
-	void ParserStringToVectorInt(char *A, std::vector<int> &B, const char *separator)
+	int ParserStringToVectorInt(char *A, std::vector<int> &B, const char *separator)
 	{
+		int res = 0;
+
 		std::vector<int> v_el;
 		std::vector<int>(v_el).swap(B);
 
-		printf_s("%s", separator);
+		//printf_s("%s", separator);
 
 		char b[21];
 		int curr_ib = 0;
-		printf_s("strlen(%s) = %d, strlen(separator) = %d\r", A, strlen(A), strlen(separator));
+		//printf_s("%s\r", A);
 		for (int ia = 0; ia < strlen(A); ia++)
 		{
+			res++;
+
 			bool flag = false;
 			for (int js = 0; js < strlen(separator); js++)
 			{
@@ -1990,6 +2439,7 @@ namespace math
 				}
 			}
 		}
+		return res;
 	}
 	int ParserCharToInt(char A)
 	{
@@ -2076,6 +2526,13 @@ namespace math
 		return;
 	}
 
+	void Char_To_Wchar_t(char* in, wchar_t* out, int SIZE)
+	{
+		for (int i = 0; i < SIZE; i++)
+		{
+			out[i] = (wchar_t)in[i];
+		}
+	}
 
 	Point<double> SolveSqrt(Point<double> a)
 	{

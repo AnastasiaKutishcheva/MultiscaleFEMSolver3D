@@ -61,6 +61,7 @@ namespace functional
 		void SetDOF(TypeDOF global_DOF_id, std::function<TypeBF(Point<double>)> &basis_function, std::function<Point<TypeBF>(Point<double>)> &derivative_of_basis_function)
 		{
 			try {
+				this->dofs_count++;
 				this->dofs.push_back(global_DOF_id);
 				this->basis_functions.push_back(basis_function);
 				this->derivative_of_basis_functions.push_back(derivative_of_basis_function);
@@ -92,6 +93,7 @@ namespace functional
 		void AppEndDOF(TypeDOF global_DOF_id, std::function<TypeBF(Point<double>)> &basis_function, std::function<Point<TypeBF>(Point<double>)> &derivative_of_basis_function)
 		{
 			try {
+				this->dofs_count++;
 				this->dofs.push_back(global_DOF_id);
 				this->basis_functions.push_back(basis_function);
 				this->derivative_of_basis_functions.push_back(derivative_of_basis_function);

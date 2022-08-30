@@ -317,6 +317,96 @@ public:
 			}
 		}
 	}
+	void PrecondorSSOR(double w, CSSD_Matrix<double, double>& A)
+	{
+		this->Diag.resize(A.Diag.size());
+		this->A_up.resize(A.A_up.size());
+		for (int i = 0; i < this->A_up.size(); i++)
+		{
+			this->A_up[i].resize(A.A_up[i].size());
+		}
+		math::MakeCopyVector_A_into_B(A.id_column_for_A_up, this->id_column_for_A_up);
+		math::MakeCopyVector_A_into_B(A.A_up, this->A_up);
+		if (A.A_down.size() == 0)
+		{
+			this->A_down.resize(A.A_up.size());
+			this->id_column_for_A_down.resize(A.A_up.size());
+			for (int i_down = 1; i_down < A_down.size(); i_down++)
+			{
+				for (int i_up = 0; i_up < i_down; i_up++)
+				{
+					for (int j_up = 0; j_up < A.id_column_for_A_up[i_up].size(); j_up++)
+					{
+						if (i_down == A.id_column_for_A_up[i_up][j_up])
+						{
+							this->id_column_for_A_down[i_down].push_back(i_up);
+							this->A_down[i_down].push_back(A.A_up[i_up][j_up]);
+						}
+						if (i_down < A.id_column_for_A_up[i_up][j_up]) break;
+					}
+				}
+			}
+		}
+		else
+		{
+			this->A_down.resize(A.A_down.size());
+			for (int i = 0; i < this->A_down.size(); i++)
+			{
+				this->A_down[i].resize(A.A_down[i].size());
+			}
+			math::MakeCopyVector_A_into_B(A.id_column_for_A_down, this->id_column_for_A_down);
+			math::MakeCopyVector_A_into_B(A.A_down, this->A_down);
+		}
+
+		for (int I = 0; I < A.GetMatrixSize(); I++)
+		{
+			this->Diag[I] = 1.0 / A.Diag[I] / w / (2 - w);
+			//this->Diag[I] = A.Diag[I];
+
+			for (int j_up = 0; j_up < this->id_column_for_A_up[I].size(); j_up++)
+			{
+				this->A_up[I][j_up] = -1 * w * this->A_up[I][j_up];
+			}
+			for (int j_down = 0; j_down < this->id_column_for_A_down[I].size(); j_down++)
+			{
+				this->A_down[I][j_down] = -1 * w * this->A_down[I][j_down];
+			}
+		}
+	}
+	void SolvePrecondorSSOR_SLAE(std::vector<double>& free_diag, std::vector<double>& X, std::vector<double>& Z)
+	{
+		X.resize(Z.size());
+
+		//STEP 1: Ex=f
+		for (int I = this->GetMatrixSize()-1; I >=0 ; I--)
+		{
+			X[I] = Z[I];
+			for (int j_up = 0; j_up < this->id_column_for_A_up[I].size(); j_up++)
+			{
+				int J = this->id_column_for_A_up[I][j_up];
+				X[I] -= X[J] * this->A_up[I][j_up];
+			}
+			X[I] /= free_diag[I];
+		}
+
+		//STEP 2: Dx_2=x_1
+		for (int I = 0; I < this->GetMatrixSize(); I++)
+		{
+			X[I] = X[I] / this->Diag[I];
+		}
+
+		//STEP 3: Fx_3=x_2
+		for (int I = 0; I < this->GetMatrixSize(); I++)
+		{
+			X[I] = X[I];
+			for (int j_down = 0; j_down < this->id_column_for_A_down[I].size(); j_down++)
+			{
+				int J = this->id_column_for_A_down[I][j_down];
+				X[I] -= X[J] * this->A_down[I][j_down];
+			}
+			X[I] /= free_diag[I];
+		}
+	}
 	void PrecondorSSOR_summetric(double w, CSSD_Matrix<double, double> &A)
 	{
 		this->Diag.resize(A.Diag.size());
@@ -352,7 +442,7 @@ public:
 //#pragma omp parallel for 
 		for (int i = 0; i < this->Diag.size(); i++)
 		{
-			if(omp_get_thread_num() == 0)
+			if(omp_get_thread_num() == 0 && i %1000 == 0)
 				printf_s("\t\t%d / %d\r", i, this->Diag.size());
 
 			this->Diag[i] = A.Diag[i];
@@ -402,6 +492,103 @@ public:
 		this->Symmetrization();
 	}
 
+
+	double BCG_Stab2(int maxiter, double E)
+	{
+		int N = this->GetMatrixSize();
+
+		double enorma, fnorma;
+		double eps3 = 1.E-16;
+		std::vector <double> r;
+		std::vector <double> rt;
+		std::vector <double> p;
+		std::vector <double> s;
+		std::vector <double> q;
+		std::vector <double> h;
+		std::vector <double> x0;
+		std::vector <double> x;
+
+		r.resize(N);
+		rt.resize(N);
+		p.resize(N);
+		s.resize(N);
+		q.resize(N);
+		h.resize(N);
+		x0.resize(N);
+
+		//!нулевая итерация
+		this->MultiplicationMatrixVector(this->X, q);
+		for (auto i = 0; i < N; i++)
+		{
+			r[i] = this->F[i] - q[i];
+			rt[i] = r[i]; // !1d0;
+			p[i] = r[i];
+		}
+
+		double f_norma = math::MakeInnerProduct(this->F, this->F);
+		f_norma = sqrt(f_norma);
+
+		double a_norma = 1;
+
+		//!основной цикл
+		int i = 0;
+		for (i = 0; i < maxiter; i++)
+		{
+			double a1 = math::MakeInnerProduct(r, rt);
+			this->MultiplicationMatrixVector(p, q);//!A * p = > q
+			double a2 = math::MakeInnerProduct(q, rt);
+			double alfa = a1 / a2;
+			for (auto j = 0; j < N; j++)
+				s[j] = r[j] - alfa * q[j];
+			
+			this->MultiplicationMatrixVector(s, h); //!A * s = > h
+			a2 = math::MakeInnerProduct(s, h);
+			double a3 = math::MakeInnerProduct(h, h);
+			double w = a2 / a3;
+
+			for (auto j = 0; j < N; j++)
+			{
+				x0[j] = this->X[j];
+				this->X[j] += alfa * p[j] + w * s[j];
+				r[j] = s[j] - w * h[j];
+			}
+
+			a2 = math::MakeInnerProduct(r, rt);
+			double beta = a2 / a1 * alfa / w;
+
+			for (auto j = 0; j < N; j++)
+				p[j] = r[j] + beta * (p[j] - w * q[j]);
+
+			double a_norma_new = math::MakeInnerProduct(r, r);
+			a_norma_new = sqrt(a_norma_new) / f_norma;
+			/*if (a_norma_new > a_norma*10)
+			{
+				a_norma = a_norma_new;
+				break;
+			}*/
+			a_norma = a_norma_new;
+
+			if (a_norma < E) break;
+			if (abs(beta) <= eps3)
+			{
+				printf("\tBSGstab\t>\tNO SOLUTION\t>\t%d\t-\t%.5e\n", i, a_norma);
+				break;
+			}
+			if (i % 1000 == 0)
+			{
+				printf_s("\tBSGstab\t>\t%d\t-\t%.5e\n", i, a_norma);
+			}
+		}
+
+		this->MultiplicationMatrixVector(this->X, r);
+		double temp = 0;
+		for (int i = 0; i < this->GetMatrixSize(); i++)
+			temp += (F[i] - r[i]) * (F[i] - r[i]);
+		double result = sqrt(temp) / f_norma;
+		printf("\tBSGstab\t>\t%d\t-\t%.5e (resolve residual)\n", i, result);
+
+		return result;
+	}
 	double BiCG_Stab(int maxiter, double E)
 	{
 		//------>>>>>!!!!!
@@ -837,7 +1024,7 @@ public:
 		return result;
 	}
 
-	double MSG_Preconditioning(int maxiter, double E, CSSD_Matrix<double, double>& M)
+	double MSG_PreconditioningSSOR(int maxiter, double E, CSSD_Matrix<double, double> &Precondor)
 	{
 		int k, n_matr = this->GetMatrixSize();
 		std::vector<double> r(n_matr); //невязка
@@ -863,7 +1050,9 @@ public:
 				///Sleep(10000);
 			}
 		}
-		M.MSG(maxiter, 1e-10, z, r, false);
+	//	CSSD_Matrix<double, double> Precondor;
+		//Precondor.PrecondorSSOR(0.75, this);
+		Precondor.SolvePrecondorSSOR_SLAE(this->Diag, z, r);
 		math::MakeCopyVector_A_into_B(z, p);
 
 		//основные итерации
@@ -883,10 +1072,10 @@ public:
 				r[i] -= alpha * temp_mult[i];
 			}
 			//z(+1) = M^(-1)*r(+1)
-			if(!(k % 10) || k == 1)
-				M.MSG(maxiter, 1e-10, z, r, true);
+			if (!(k % 10) || k == 1)
+				Precondor.SolvePrecondorSSOR_SLAE(this->Diag, z, r);
 			else
-				M.MSG(maxiter, 1e-10, z, r, false);
+				Precondor.SolvePrecondorSSOR_SLAE(this->Diag, z, r);
 			//betta = (r(+1),z(+1))/(r,z)
 			betta = math::MakeInnerProduct(r, z) / scal_r_z;
 			for (int i = 0; i < n_matr; i++)
@@ -896,20 +1085,9 @@ public:
 
 			//готовим на следующий шаг
 			scal_r_z = math::MakeInnerProduct(r, z);
-			if (!(k % 10) || k == 1)
+			if (!(k % 100) || k == 1)
 			{
-				//считаем настоящую невязку
-				this->MultiplicationMatrixVector(this->X, temp_mult);
-				double tmp1 = 0, tmp2 = 0;
-				for (int i = 0; i < this->X.size(); i++)
-				{
-					tmp1 += (temp_mult[i] - this->F[i])*(temp_mult[i] - this->F[i]);
-					tmp2 += (this->F[i])*(this->F[i]);
-				}
-				printf(">%d/%d - %.15lf (real: %.15lf)\n",
-					k, maxiter,
-					sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)),
-					sqrt(tmp1 / tmp2));
+				printf("\tMSG_SSOR\t>\t%d\t-\t%.5e\n", k, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)));
 			}
 		}
 
@@ -921,8 +1099,8 @@ public:
 			tmp1 += (temp_mult[i] - this->F[i]) * (temp_mult[i] - this->F[i]);
 			tmp2 += (this->F[i]) * (this->F[i]);
 		}
-		printf(">%d/%d - %.15lf (real: %.15lf)\n",
-			k, maxiter,
+		printf("\tMSG_SSOR\t>\t%d\t-\t%.5e (resolve residual)\n",
+			k,
 			sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)),
 			sqrt(tmp1 / tmp2));
 
@@ -977,7 +1155,7 @@ public:
 			//if( k == maxiter ) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!!!!!!!\n");
 			if (!(k % 1000) || k == 1)
 			{
-				printf(">%d - %.15lf\n", k, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)));
+				printf("\tMSG\t>\t%d\t-\t%.5e\n", k-1, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)));
 				/*mult(U);
 				double tmp1 = 0, tmp2 = 0;
 				for (int i = 0; i < U.size(); i++)
@@ -1002,7 +1180,7 @@ public:
 			tmp1 += (temp_mult[i] - this->F[i])*(temp_mult[i] - this->F[i]);
 			tmp2 += (this->F[i])*(this->F[i]);
 		}
-		printf(">>%d - %.15e\n", k, sqrt(tmp1 / tmp2));
+		printf("\tMSG\t>\t%d\t-\t%.5e (resolve residual)\n", k, sqrt(tmp1 / tmp2));
 		double current_r = sqrt(tmp1 / tmp2);
 
 		temp_mult.clear();

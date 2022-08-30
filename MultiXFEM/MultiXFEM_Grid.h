@@ -33,6 +33,13 @@ namespace MultiXFEM {
 				/*if (this->GetIdDomain() == 2) 
 					printf_s("\nThis elem[%d] is singular\n", this->GetSelfGlobalId());*/
 
+				/*int bf = this->GetDOFsCount();
+				if (bf > 4)
+				{
+					bf *= 1;
+					printf_s("In element[%d] there are additional DOFs!\n", this->GetSelfGlobalId());
+				}*/
+
 				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
 				{
 					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
@@ -140,7 +147,7 @@ namespace MultiXFEM {
 
 						double V = this->GetVolume();
 						local_matix.A[_bf_local_id_I][_bf_local_id_J] = this->SolveIntegral(StiffnessMatrix);
-						local_matix.A[_bf_local_id_J][_bf_local_id_I] = this->SolveIntegral(StiffnessMatrix).T();
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = local_matix.A[_bf_local_id_I][_bf_local_id_J].T();
 
 						//костыль дл€ гидроразрыва!!!
 						/*if (_bf_local_id_I >= 4 && _bf_local_id_J >= 4)
@@ -1105,13 +1112,16 @@ namespace MultiXFEM {
 						//определение пересечени€ тетраэдра плоскостью трещины current_crack
 						{
 							bool find_include = false;
-							for (int id_vertex = 0; id_vertex < current_element->GetNodesCount() && !find_include; id_vertex++)
+							//это что блин за условие?? а если трещина ѕЋќ— јя??
+							/*for (int id_vertex = 0; id_vertex < current_element->GetNodesCount() && !find_include; id_vertex++)
 							{
 								Point<double> x = current_element->GetNode(id_vertex);
+								
 								if (current_crack->min_point <= x && x <= current_crack->max_point)
 									find_include = true;
-							}
-							if (find_include)
+								
+							}*/
+							if (find_include || true)
 							{
 								Point<double> edge[6];
 								int pattern_for_edge[6][2] = { { 0,1 },{ 0,2 },{ 0,3 },{ 1,2 },{ 1,3 },{ 2,3 } };
@@ -2137,172 +2147,170 @@ namespace MultiXFEM {
 				}
 				
 				//сингул€рные
-				for (int id_front = 0; false && id_front < current_crack->fronts.size(); id_front++)
+				for (int id_front = 0; id_front < current_crack->fronts.size(); id_front++)
 				{
 					std::vector <int> id_extended_singular_vertexes;
 					//via elements
-					for (int i = 0; i < false && this->GetElementsCount(); i++)
+					for (int i = 0; i < this->GetElementsCount(); i++)
 					{
 						auto current_element = this->GetElement(i);
 
+						Point<double> node[6];
+						int pattern_for_node[4] = { 0,1,2,3 };
+						int cross_section_forNode[4], SUMM_forNode = 0, num_of_front_forNode[4];
+						cross_section_forNode[0] = 0;
+						cross_section_forNode[1] = 0;
+						cross_section_forNode[2] = 0;
+						cross_section_forNode[3] = 0;
+						for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size() && SUMM_forNode < 2; id_segment++)
 						{
-							Point<double> node[6];
-							int pattern_for_node[4] = { 0,1,2,3 };
-							int cross_section_forNode[4], SUMM_forNode = 0, num_of_front_forNode[4];
-							cross_section_forNode[0] = 0;
-							cross_section_forNode[1] = 0;
-							cross_section_forNode[2] = 0;
-							cross_section_forNode[3] = 0;
-							for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size() && SUMM_forNode < 2; id_segment++)
+							for (int n = 0; n < 4; n++)
 							{
-								for (int n = 0; n < 4; n++)
+								if (cross_section_forNode[n] == 0)
 								{
-									if (cross_section_forNode[n] == 0)
+									double len_left = math::SolveLengthVector(current_element->GetNode(pattern_for_node[n]),
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left]);
+									double len_right = math::SolveLengthVector(current_element->GetNode(pattern_for_node[n]),
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
+									double len_full = math::SolveLengthVector(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left],
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
+									if (math::IsEqual(len_left + len_right, len_full))
 									{
-										double len_left = math::SolveLengthVector(current_element->GetNode(pattern_for_node[n]),
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left]);
-										double len_right = math::SolveLengthVector(current_element->GetNode(pattern_for_node[n]),
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
-										double len_full = math::SolveLengthVector(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left],
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
-										if (math::IsEqual(len_left + len_right, len_full))
-										{
-											cross_section_forNode[n] = 1;
-											num_of_front_forNode[n] = id_segment;
-											SUMM_forNode++;
-										}
+										cross_section_forNode[n] = 1;
+										num_of_front_forNode[n] = id_segment;
+										SUMM_forNode++;
 									}
 								}
 							}
+						}
 
-							Point<double> edge[6];
-							int pattern_for_edge[6][2] = { { 0,1 },{ 0,2 },{ 0,3 },{ 1,2 },{ 1,3 },{ 2,3 } };
-							int cross_section_forEdge[6], SUMM_forEdge = 0, num_of_front_forEdge[6];
-							cross_section_forEdge[0] = 0;
-							cross_section_forEdge[1] = 0;
-							cross_section_forEdge[2] = 0;
-							cross_section_forEdge[3] = 0;
-							cross_section_forEdge[4] = 0;
-							cross_section_forEdge[5] = 0;
-							for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size() && SUMM_forNode < 2 && SUMM_forEdge < 2; id_segment++)
+						Point<double> edge[6];
+						int pattern_for_edge[6][2] = { { 0,1 },{ 0,2 },{ 0,3 },{ 1,2 },{ 1,3 },{ 2,3 } };
+						int cross_section_forEdge[6], SUMM_forEdge = 0, num_of_front_forEdge[6];
+						cross_section_forEdge[0] = 0;
+						cross_section_forEdge[1] = 0;
+						cross_section_forEdge[2] = 0;
+						cross_section_forEdge[3] = 0;
+						cross_section_forEdge[4] = 0;
+						cross_section_forEdge[5] = 0;
+						for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size() && SUMM_forNode < 2 && SUMM_forEdge < 2; id_segment++)
+						{
+							for (int e = 0; e < 6; e++)
 							{
-								for (int e = 0; e < 6; e++)
+								if (cross_section_forEdge[e] == 0)
 								{
-									if (cross_section_forEdge[e] == 0)
+									Point<double> cross = math::GetIntersectionPointOfLineAndLine(
+										current_element->GetNode(pattern_for_edge[e][0]),
+										current_element->GetNode(pattern_for_edge[e][1]),
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left],
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
+									if (math::IsLineContainThePoint(current_element->GetNode(pattern_for_edge[e][0]), current_element->GetNode(pattern_for_edge[e][1]), cross) &&
+										math::IsLineContainThePoint(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left], current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right], cross) &&
+										cross != current_element->GetNode(pattern_for_edge[e][0]) &&
+										cross != current_element->GetNode(pattern_for_edge[e][1]))
 									{
-										Point<double> cross = math::GetIntersectionPointOfLineAndLine(
-											current_element->GetNode(pattern_for_edge[e][0]),
-											current_element->GetNode(pattern_for_edge[e][1]),
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left],
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
-										if (math::IsLineContainThePoint(current_element->GetNode(pattern_for_edge[e][0]), current_element->GetNode(pattern_for_edge[e][1]), cross) &&
-											math::IsLineContainThePoint(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left], current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right], cross) &&
-											cross != current_element->GetNode(pattern_for_edge[e][0]) &&
-											cross != current_element->GetNode(pattern_for_edge[e][1]))
-										{
-											cross_section_forEdge[e] = 1;
-											num_of_front_forEdge[e] = id_segment;
-											SUMM_forEdge++;
-											edge[e] = cross;
-										}
+										cross_section_forEdge[e] = 1;
+										num_of_front_forEdge[e] = id_segment;
+										SUMM_forEdge++;
+										edge[e] = cross;
 									}
 								}
 							}
+						}
 
-							Point<double> face[6];
-							int pattern_for_face[4][3] = { { 0,1,2 },{ 0,1,3 },{ 0,2,3 },{ 1,2,3 } };
-							int pattern_for_face_via_edge[4][3] = { { 0,1,3 },{ 0,2,4 },{ 1,2,5 },{ 3,4,5 } };
-							int cross_section_forFace[4], SUMM_forFace = 0, num_of_front_forFace[4];
-							cross_section_forFace[0] = 0;
-							cross_section_forFace[1] = 0;
-							cross_section_forFace[2] = 0;
-							cross_section_forFace[3] = 0;
-							for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size() && SUMM_forNode < 2 && SUMM_forEdge < 2 && SUMM_forFace < 2; id_segment++)
+						Point<double> face[6];
+						int pattern_for_face[4][3] = { { 0,1,2 },{ 0,1,3 },{ 0,2,3 },{ 1,2,3 } };
+						int pattern_for_face_via_edge[4][3] = { { 0,1,3 },{ 0,2,4 },{ 1,2,5 },{ 3,4,5 } };
+						int cross_section_forFace[4], SUMM_forFace = 0, num_of_front_forFace[4];
+						cross_section_forFace[0] = 0;
+						cross_section_forFace[1] = 0;
+						cross_section_forFace[2] = 0;
+						cross_section_forFace[3] = 0;
+						for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size() && SUMM_forNode < 2 && SUMM_forEdge < 2 && SUMM_forFace < 2; id_segment++)
+						{
+							for (int f = 0; f < 4; f++)
 							{
-								for (int f = 0; f < 4; f++)
+								if (cross_section_forFace[f] == 0)
 								{
-									if (cross_section_forFace[f] == 0)
-									{
-										Point<double> cross = math::GetIntersectionPointOfLineAndPlane(
-											current_element->GetNode(pattern_for_face[f][0]),
-											current_element->GetNode(pattern_for_face[f][1]),
-											current_element->GetNode(pattern_for_face[f][2]),
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left],
-											current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
+									Point<double> cross = math::GetIntersectionPointOfLineAndPlane(
+										current_element->GetNode(pattern_for_face[f][0]),
+										current_element->GetNode(pattern_for_face[f][1]),
+										current_element->GetNode(pattern_for_face[f][2]),
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left],
+										current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]);
 
-										double S = math::SolveSquareTriangle(current_element->GetNode(pattern_for_face[f][0]),
-											current_element->GetNode(pattern_for_face[f][1]),
-											current_element->GetNode(pattern_for_face[f][2]));
-										double S0 = math::SolveSquareTriangle(cross,
-											current_element->GetNode(pattern_for_face[f][1]),
-											current_element->GetNode(pattern_for_face[f][2]));
-										double S1 = math::SolveSquareTriangle(current_element->GetNode(pattern_for_face[f][0]),
-											cross,
-											current_element->GetNode(pattern_for_face[f][2]));
-										double S2 = math::SolveSquareTriangle(current_element->GetNode(pattern_for_face[f][0]),
-											current_element->GetNode(pattern_for_face[f][1]),
-											cross);
-										if (math::IsEqual(S0 + S1 + S2, S) &&
-											!math::IsEqual(S0, 0.0) && !math::IsEqual(S1, 0.0) && !math::IsEqual(S2, 0.0))
-										{
-											cross_section_forFace[f] = 1;
-											num_of_front_forFace[f] = id_segment;
-											SUMM_forFace++;
-										}
+									double S = math::SolveSquareTriangle(current_element->GetNode(pattern_for_face[f][0]),
+										current_element->GetNode(pattern_for_face[f][1]),
+										current_element->GetNode(pattern_for_face[f][2]));
+									double S0 = math::SolveSquareTriangle(cross,
+										current_element->GetNode(pattern_for_face[f][1]),
+										current_element->GetNode(pattern_for_face[f][2]));
+									double S1 = math::SolveSquareTriangle(current_element->GetNode(pattern_for_face[f][0]),
+										cross,
+										current_element->GetNode(pattern_for_face[f][2]));
+									double S2 = math::SolveSquareTriangle(current_element->GetNode(pattern_for_face[f][0]),
+										current_element->GetNode(pattern_for_face[f][1]),
+										cross);
+									if (math::IsEqual(S0 + S1 + S2, S) &&
+										!math::IsEqual(S0, 0.0) && !math::IsEqual(S1, 0.0) && !math::IsEqual(S2, 0.0))
+									{
+										cross_section_forFace[f] = 1;
+										num_of_front_forFace[f] = id_segment;
+										SUMM_forFace++;
 									}
 								}
 							}
+						}
 
-							std::vector<int> _tmp_id_segment;
-							if (SUMM_forFace != 0 || SUMM_forEdge != 0 || SUMM_forNode != 0)
+						std::vector<int> _tmp_id_segment;
+						if (SUMM_forFace != 0 || SUMM_forEdge != 0 || SUMM_forNode != 0)
+						{
+							for (int n = 0; n < 4; n++)
 							{
-								for (int n = 0; n < 4; n++)
+								if (cross_section_forNode[n] != 0)
 								{
-									if (cross_section_forNode[n] != 0)
-									{
-										id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_node[n]));
-										_tmp_id_segment.push_back(id_front);
-									}
+									id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_node[n]));
+									_tmp_id_segment.push_back(id_front);
 								}
-								for (int e = 0; e < 6; e++)
-								{
-									if (cross_section_forEdge[e] != 0)
-									{
-										id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_edge[e][0]));
-										id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_edge[e][1]));
-										_tmp_id_segment.push_back(id_front);
-									}
-								}
-								for (int f = 0; f < 4; f++)
-								{
-									if (cross_section_forFace[f] != 0)
-									{
-										id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_face[f][0]));
-										id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_face[f][1]));
-										id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_face[f][2]));
-										_tmp_id_segment.push_back(id_front);
-									}
-								}
-
 							}
-							if (SUMM_forFace == 0 && SUMM_forEdge == 0 && SUMM_forNode == 0)
+							for (int e = 0; e < 6; e++)
 							{
-								for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size(); id_segment++)
+								if (cross_section_forEdge[e] != 0)
 								{
-									if (current_element->IsContainThePoint(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left]) &&
-										current_element->IsContainThePoint(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]))
-									{
-										_tmp_id_segment.push_back(id_front);
-									}
+									id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_edge[e][0]));
+									id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_edge[e][1]));
+									_tmp_id_segment.push_back(id_front);
+								}
+							}
+							for (int f = 0; f < 4; f++)
+							{
+								if (cross_section_forFace[f] != 0)
+								{
+									id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_face[f][0]));
+									id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_face[f][1]));
+									id_extended_singular_vertexes.push_back(current_element->GetIdNode(pattern_for_face[f][2]));
+									_tmp_id_segment.push_back(id_front);
 								}
 							}
 
-							if (_tmp_id_segment.size() != 0)
+						}
+						if (SUMM_forFace == 0 && SUMM_forEdge == 0 && SUMM_forNode == 0)
+						{
+							for (int id_segment = 0; id_segment < current_crack->fronts[id_front].size(); id_segment++)
 							{
-								std::vector<int> aa;
-								math::MakeQuickSort(_tmp_id_segment);
-								math::MakeRemovalOfDuplication(_tmp_id_segment, aa);
+								if (current_element->IsContainThePoint(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_left]) &&
+									current_element->IsContainThePoint(current_crack->xyz[current_crack->fronts[id_front][id_segment].id_right]))
+								{
+									_tmp_id_segment.push_back(id_front);
+								}
 							}
+						}
+
+						if (_tmp_id_segment.size() != 0)
+						{
+							std::vector<int> aa;
+							math::MakeQuickSort(_tmp_id_segment);
+							math::MakeRemovalOfDuplication(_tmp_id_segment, aa);
 						}
 					}
 
@@ -2953,8 +2961,10 @@ namespace MultiXFEM {
 									};
 
 
-									//current_element->AppEndDOF(this->GetDOFsCount() - 4 + id_function, bf, derivative_bf);
-									current_element->AppEndDOF(this->GetDOFsCount() - 4 + id_function, bf, derivative_bf_numerical);
+									current_element->AppEndDOF(this->GetDOFsCount() - 4 + id_function, bf, derivative_bf);
+									
+									
+									//current_element->AppEndDOF(this->GetDOFsCount() - 4 + id_function, bf, derivative_bf_numerical);
 									//current_element->SetIdDomain(2);
 									//printf_s("\n%d\n", current_element->GetIdDomain());
 									//current_element->AppEndDOF(base_dof_count + i*4 + id_function, bf, derivative_bf);
@@ -2964,7 +2974,6 @@ namespace MultiXFEM {
 						}
 					}
 				}
-
 			}
 
 		}

@@ -1737,6 +1737,19 @@ namespace geometry
 			}
 		}
 
+		void SetGeometry(std::vector<int>& id_global_nodes, std::vector<Point<double>*>& P)
+		{
+			try
+			{
+				this->SetIdNodes(id_global_nodes);
+				this->UpdateNodes(P);
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: GeometryShape.h/Tetrahedron::SetGeometry(std::vector<std::vector<int>>& id_nodes, std::vector<Point<double>*>& P)");
+			}
+		};
+
 		void SetIntegrationLaw(int points_count)
 		{
 			this->integration_parameters.w.resize(points_count);
@@ -1886,11 +1899,11 @@ namespace geometry
 				return false;
 			}
 		}
-		bool IsContainThePoint(Point<double> A, double &length)
+		bool IsContainThePoint(Point<double> A, double & discrepancy)
 		{
 			try
 			{
-				Point<double> P[4];
+				/*Point<double> P[4];
 				double V = GetVolume(), V1, V2, V3, V4;
 
 				P[0] = this->GetNode(0);
@@ -1919,7 +1932,22 @@ namespace geometry
 				length = res;
 				if (res <= 1E-15)
 					return true;
-				return false;
+				return false;*/
+
+				double L1 = alpha[0][0] + alpha[0][1] * A.x + alpha[0][2] * A.y + alpha[0][3] * A.z;
+				double L2 = alpha[1][0] + alpha[1][1] * A.x + alpha[1][2] * A.y + alpha[1][3] * A.z;
+				double L3 = alpha[2][0] + alpha[2][1] * A.x + alpha[2][2] * A.y + alpha[2][3] * A.z;
+				double L4 = alpha[3][0] + alpha[3][1] * A.x + alpha[3][2] * A.y + alpha[3][3] * A.z;
+
+				if (abs(L1) < 1e-15 && abs(L1 - 1) < 1e-15 &&
+					abs(L2) < 1e-15 && abs(L2 - 1) < 1e-15 &&
+					abs(L3) < 1e-15 && abs(L3 - 1) < 1e-15 &&
+					abs(L4) < 1e-15 && abs(L4 - 1) < 1e-15)
+				{
+					discrepancy = 0.0;
+					return true;
+				}
+				discrepancy = fmin(abs(L1), abs(L1 - 1)) + fmin(abs(L2), abs(L2 - 1)) + fmin(abs(L3), abs(L3 - 1)) + fmin(abs(L4), abs(L4 - 1));
 			}
 			catch (const std::exception&)
 			{

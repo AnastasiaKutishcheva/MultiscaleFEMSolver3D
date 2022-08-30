@@ -100,6 +100,56 @@ namespace FEM{
 				printf_s("Error: XFEM/MultiXFEM_Grid.h/void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D> &local_matix, std::function<std::vector<std::vector<double>>(Point)> &koefD)\n");
 			}
 		}
+		void SolveLocalMatrix(DenseMatrix<double, double>& local_matix,
+			std::function<double(int, Point<double>)>& koefStiffness)
+		{
+			try {
+				local_matix.SetSize(this->GetDOFsCount());
+				int global_id = this->GetSelfGlobalId();
+
+				this->SetIntegrationLaw(1);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+										
+					for (int _bf_local_id_J = 0; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					{
+						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
+						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
+
+						Point<double> o = this->GetWeightCentr();
+						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
+
+						std::function<double(Point<double>)> StiffnessMatrix = [&global_id, &_bf_local_id_I, &_bf_local_id_J, &koefStiffness, &D_basis_function_I, &D_basis_function_J]
+						(Point<double> X) -> double
+						{
+							double result;
+							auto S = koefStiffness(global_id, X);
+							Point<double> derevativeBF_I_inX = (*D_basis_function_I)(X);
+							Point<double> derevativeBF_J_inX = (*D_basis_function_J)(X);
+
+							result = S * (
+								derevativeBF_I_inX.x * derevativeBF_J_inX.x +
+								derevativeBF_I_inX.y * derevativeBF_J_inX.y +
+								derevativeBF_I_inX.z * derevativeBF_J_inX.z);
+							//result = 1.0;
+							return result;
+						};
+
+
+						double V = this->GetVolume();
+						double S = this->SolveIntegral(StiffnessMatrix);
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = S;
+					}
+				}
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: XFEM/MultiXFEM_Grid.h/void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D> &local_matix, std::function<std::vector<std::vector<double>>(Point)> &koefD)\n");
+			}
+		}
 	};
 	class BoundaryVertex_forScal :
 		public geometry::Vertex,
@@ -598,7 +648,7 @@ namespace FEM{
 				printf_s("                                  \r");
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
-					if (id_string % 1 == 0)
+					if (id_string % 100 == 0)
 						printf_s("Work with row[%d]\r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);
@@ -718,6 +768,86 @@ namespace FEM{
 
 			fclose(fdat);
 		}
+		void printTecPlot3D_DiffDomains(/*char *directory,*/ FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
+		{
+			fprintf_s(fdat, "TITLE     = \"numerical\"\n");
+			fprintf_s(fdat, "VARIABLES = \"x\"\n \"y\"\n \"z\"\n");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " \"");
+				for (int j = 0; j < value[i].size(); j++)
+				{
+					if (name_value[i][j] != '\0')
+					{
+						fprintf_s(fdat, "%c", name_value[i][j]);
+					}
+					else
+					{
+						break;
+					}
+				}
+				fprintf_s(fdat, "\"\n");
+			}
+
+			std::vector<int> in_domain(this->GetDomainsCount());
+			for (int i = 0; i < this->GetElementsCount(); i++)
+			{
+				in_domain[this->GetElement(i)->GetIdDomain()]++;
+			}
+
+			for (int id_domain = 0; id_domain < this->GetDomainsCount(); id_domain++)
+			{
+				if (in_domain[id_domain] != 0)
+				{
+					fprintf_s(fdat, "ZONE T=\"%s_%d\"\n", name_zone, id_domain);
+					fprintf_s(fdat, " N=%d,  E=%d, F=FEBLOCK ET=Tetrahedron \n", this->GetVertexCount(), in_domain[id_domain]);
+					fprintf_s(fdat, " VARLOCATION=(NODAL NODAL NODAL");
+					for (int i = 0; i < value.size(); i++)
+					{
+						if (value[i].size() == this->GetElementsCount()) fprintf_s(fdat, " CELLCENTERED");
+						else fprintf_s(fdat, " NODAL");
+					}
+					fprintf_s(fdat, ")\n");
+
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).x);
+					fprintf_s(fdat, "\n");
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).y);
+					fprintf_s(fdat, "\n");
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).z);
+					fprintf_s(fdat, "\n");
+
+					for (int i = 0; i < value.size(); i++)
+					{
+						if (value[i].size() == this->GetElementsCount())
+						{
+							for (int j = 0; j < this->GetElementsCount(); j++)
+								if (this->GetElement(j)->GetIdDomain() == id_domain)
+									fprintf_s(fdat, "%.10e\n", value[i][j]);
+						}
+						else {
+							for (int j = 0; j < value[i].size(); j++)
+								fprintf_s(fdat, "%.10e\n", value[i][j]);
+						}
+						fprintf_s(fdat, "\n");
+					}
+
+					for (int i = 0; i < this->GetElementsCount(); i++)
+					{
+						if (this->GetElement(i)->GetIdDomain() == id_domain)
+						{
+							for (int j = 0; j < this->GetElement(i)->GetNodesCount(); j++)
+								fprintf_s(fdat, "%d ", this->GetElement(i)->GetIdNode(j) + 1);
+						}
+						fprintf_s(fdat, "\n");
+					}
+				}
+			}
+			fclose(fdat);
+		}
+
 
 		~Grid_forScal()
 		{
@@ -732,6 +862,1197 @@ namespace FEM{
 			std::vector<int>(v_p).swap(this->accordance_DOF_and_vertex);
 			std::vector<topology::Vertex<topology::lower::EmptyElement, topology::upper::Tetrahedron>> v_v;
 			std::vector<topology::Vertex<topology::lower::EmptyElement, topology::upper::Tetrahedron>>(v_v).swap(this->vertexes);
+
+			this->DeleteGeometriGrid();
+		}
+	private:
+
+	};
+
+	class FiniteElement_forScal_OrderBF2 :
+		public geometry::Tetrahedron,
+		//public topology::Tetrahedron<topology::lower::Triangle, topology::upper::EmptyElement>,
+		public topology::Tetrahedron<topology::lower::Segment, topology::upper::EmptyElement>,
+		public functional::Shape<int, double>
+	{
+	public:
+
+		FiniteElement_forScal_OrderBF2() { return; };
+		~FiniteElement_forScal_OrderBF2() { return; };
+
+		void SolveLocalMatrix(DenseMatrix<double, double>& local_matix,
+			std::function<double(int, Point<double>)>& koefStiffness,
+			std::function<double(int, Point<double>)>& koefMass,
+			std::function<double(int, Point<double>)>& F)
+		{
+			try {
+				local_matix.SetSize(this->GetDOFsCount());
+				int global_id = this->GetSelfGlobalId();
+
+				this->SetIntegrationLaw(4);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+
+					std::function<double(Point<double>)> RightSide = [&global_id, &_bf_local_id_I, &basis_function_I, &F]
+					(Point<double> X) -> double
+					{
+						double result;
+						auto right_side = F(global_id, X);
+						double BF_I_inX = (*basis_function_I)(X);
+
+						result = right_side * BF_I_inX;
+						//result = 1.0;
+						return result;
+					};
+					local_matix.F[_bf_local_id_I] = this->SolveIntegral(RightSide);
+
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					{
+						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
+						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
+
+						Point<double> o = this->GetWeightCentr();
+						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
+
+						std::function<double(Point<double>)> StiffnessMatrix = [&global_id, &_bf_local_id_I, &_bf_local_id_J, &koefStiffness, &D_basis_function_I, &D_basis_function_J]
+						(Point<double> X) -> double
+						{
+							double result;
+							auto S = koefStiffness(global_id, X);
+							Point<double> derevativeBF_I_inX = (*D_basis_function_I)(X);
+							Point<double> derevativeBF_J_inX = (*D_basis_function_J)(X);
+
+							result = S * (
+								derevativeBF_I_inX.x * derevativeBF_J_inX.x +
+								derevativeBF_I_inX.y * derevativeBF_J_inX.y +
+								derevativeBF_I_inX.z * derevativeBF_J_inX.z);
+							//result = 1.0;
+							return result;
+						};
+						std::function<double(Point<double>)> MassMatrix = [&global_id, &_bf_local_id_I, &_bf_local_id_J, &basis_function_I, &basis_function_J, &koefMass]
+						(Point<double> X) -> double
+						{
+							double result;
+							auto M = koefMass(global_id, X);
+							double BF_I_inX = (*basis_function_I)(X);
+							double BF_J_inX = (*basis_function_J)(X);
+
+							result = M * BF_I_inX * BF_J_inX;
+							//result = 1.0;
+							return result;
+						};
+
+
+						double V = this->GetVolume();
+						double S = this->SolveIntegral(StiffnessMatrix);
+						double M = this->SolveIntegral(MassMatrix);
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = S + M;
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = S + M;
+					}
+				}
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: FEM/FEM_Grid.h/void SolveLocalMatrix(..)\n");
+			}
+		}
+		void SolveLocalMatrix(DenseMatrix<double, double>& local_matix,
+			std::function<double(int, Point<double>)>& koefStiffness,
+			std::function<double(int, Point<double>)>& F)
+		{
+			try {
+				local_matix.SetSize(this->GetDOFsCount());
+				int global_id = this->GetSelfGlobalId();
+
+				this->SetIntegrationLaw(4);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+
+					std::function<double(Point<double>)> RightSide = [&global_id, &_bf_local_id_I, &basis_function_I, &F]
+					(Point<double> X) -> double
+					{
+						double result;
+						auto right_side = F(global_id, X);
+						double BF_I_inX = (*basis_function_I)(X);
+
+						result = right_side * BF_I_inX;
+						//result = 1.0;
+						return result;
+					};
+					local_matix.F[_bf_local_id_I] = this->SolveIntegral(RightSide);
+
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					{
+						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
+						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
+
+						Point<double> o = this->GetWeightCentr();
+						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
+
+						std::function<double(Point<double>)> StiffnessMatrix = [&global_id, &_bf_local_id_I, &_bf_local_id_J, &koefStiffness, &D_basis_function_I, &D_basis_function_J]
+						(Point<double> X) -> double
+						{
+							double result;
+							auto S = koefStiffness(global_id, X);
+							Point<double> derevativeBF_I_inX = (*D_basis_function_I)(X);
+							Point<double> derevativeBF_J_inX = (*D_basis_function_J)(X);
+
+							result = S * (
+								derevativeBF_I_inX.x * derevativeBF_J_inX.x +
+								derevativeBF_I_inX.y * derevativeBF_J_inX.y +
+								derevativeBF_I_inX.z * derevativeBF_J_inX.z);
+							//result = 1.0;
+							return result;
+						};
+						
+						double V = this->GetVolume();
+						double S = this->SolveIntegral(StiffnessMatrix);
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = S;
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = S;
+					}
+				}
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: FEM/FEM_Grid.h/void SolveLocalMatrix(..)\n");
+			}
+		}
+		void SolveLocalMatrix(DenseMatrix<double, double>& local_matix,
+			std::function<double(int, Point<double>)>& koefStiffness)
+		{
+			try {
+				local_matix.SetSize(this->GetDOFsCount());
+				int global_id = this->GetSelfGlobalId();
+
+				this->SetIntegrationLaw(4);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					{
+						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
+						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
+
+						Point<double> o = this->GetWeightCentr();
+						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
+
+						std::function<double(Point<double>)> StiffnessMatrix = [&global_id, &_bf_local_id_I, &_bf_local_id_J, &koefStiffness, &D_basis_function_I, &D_basis_function_J]
+						(Point<double> X) -> double
+						{
+							double result;
+							auto S = koefStiffness(global_id, X);
+							Point<double> derevativeBF_I_inX = (*D_basis_function_I)(X);
+							Point<double> derevativeBF_J_inX = (*D_basis_function_J)(X);
+
+							result = S * (
+								derevativeBF_I_inX.x * derevativeBF_J_inX.x +
+								derevativeBF_I_inX.y * derevativeBF_J_inX.y +
+								derevativeBF_I_inX.z * derevativeBF_J_inX.z);
+							//result = 1.0;
+							return result;
+						};
+
+						double V = this->GetVolume();
+						double S = this->SolveIntegral(StiffnessMatrix);
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = S;
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = S;
+					}
+				}
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: FEM/FEM_Grid.h/void SolveLocalMatrix(..)\n");
+			}
+		}
+	};
+	class BoundaryVertex_forScal_OrderBF2 :
+		public geometry::Vertex,
+		//public topology::Vertex<topology::lower::EmptyElement, topology::upper::Segment>,
+		public topology::Vertex<topology::lower::EmptyElement, topology::upper::Tetrahedron>,
+		public functional::Shape<int, double>
+	{
+	public:
+		std::function<double(Point<double>& X)> boundary_value;
+
+		BoundaryVertex_forScal_OrderBF2() { return; };
+		~BoundaryVertex_forScal_OrderBF2() { return; };
+
+		void SetTypeBoundary(int type)
+		{
+			this->type_boundary = type;
+		}
+		int GetTypeBoundary()
+		{
+			return this->type_boundary;
+		}
+
+	private:
+		int type_boundary;
+
+	};
+	class BoundaryEdges_forScal_OrderBF2 :
+		public geometry::Vertex,
+		//public topology::Vertex<topology::lower::EmptyElement, topology::upper::Segment>,
+		public topology::Segment<topology::lower::EmptyElement, topology::upper::Tetrahedron>,
+		public functional::Shape<int, double>
+	{
+	public:
+		std::function<double(Point<double>& X)> boundary_value;
+
+		BoundaryEdges_forScal_OrderBF2() { return; };
+		~BoundaryEdges_forScal_OrderBF2() { return; };
+
+		void SetTypeBoundary(int type)
+		{
+			this->type_boundary = type;
+		}
+		int GetTypeBoundary()
+		{
+			return this->type_boundary;
+		}
+
+	private:
+		int type_boundary;
+
+	};
+	class BoundaryFace_forScal_OrderBF2 :
+		public geometry::Triangle,
+		public topology::Triangle<topology::lower::Vertex, topology::upper::Tetrahedron>,
+		public functional::Shape<int, double>
+	{
+	public:
+		std::function<double(Point<double>& X)> boundary_value;
+
+		BoundaryFace_forScal_OrderBF2() { return; };
+		~BoundaryFace_forScal_OrderBF2() { return; };
+
+		void SetTypeBoundary(int type)
+		{
+			this->type_boundary = type;
+		}
+		int GetTypeBoundary()
+		{
+			return this->type_boundary;
+		}
+
+		void SolveLocalBoundaryVector(std::vector<double>& local_vector, std::function<double(Point<double>& X)>& boundary_value)
+		{
+			try {
+				/*local_vector.resize(this->GetDOFsCount());
+				this->SetIntegrationLaw(4);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+
+					std::function<Point<double>(Point<double>)> ValueInPoint = [&basis_function_I, &boundary_value]
+					(Point<double> X) -> Point<double>
+					{
+						Point<double> result;
+						auto boundary = boundary_value(X);
+						auto func = (*basis_function_I)(X);
+						result.x = func.x * boundary.x;
+						result.y = func.y * boundary.y;
+						result.z = func.z * boundary.z;
+
+						return result;
+					};
+
+					double V = this->GetVolume();
+					local_vector[_bf_local_id_I] = this->SolveIntegral(ValueInPoint);
+
+				}*/
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: XFEM/MultiXFEM_Grid.h/void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D> &local_matix, std::function<std::vector<std::vector<double>>(Point)> &koefD)\n");
+			}
+		}
+
+	private:
+		int type_boundary;
+	};
+	class Grid_forScal_OrderBF2 : public geometry::Grid<FiniteElement_forScal_OrderBF2>
+	{
+		int DOFs_count;
+		struct Edge : //1D elements
+			public topology::Segment<topology::lower::Vertex, topology::upper::Tetrahedron>,
+			public geometry::Segment,
+			public functional::Shape<int, Point<double>>
+		{
+		public:
+			Point<double> geo_centr;
+
+			Edge() {};
+			~Edge() {};
+		};
+		std::vector<Edge> edges;
+		struct Vertex : //0D elements
+			public topology::Vertex<topology::lower::EmptyElement, topology::upper::SegmentToTetrahedron>,
+			public geometry::Vertex,
+			public functional::Shape<int, Point<double>>
+		{
+		public:
+			Vertex() {};
+			~Vertex() {};
+		};
+		std::vector<Vertex> vertexes;
+
+	public:
+		std::vector<BoundaryVertex_forScal_OrderBF2> boundary_vertexes;
+		std::vector<BoundaryEdges_forScal_OrderBF2> boundary_edges;
+		std::vector<BoundaryFace_forScal_OrderBF2> boundary_faces;
+
+		bool is_print_logFile;
+
+		std::vector<int> accordance_DOF_and_vertex;
+
+		Grid_forScal_OrderBF2()
+		{
+			DOFs_count = 0;
+		};
+
+		std::vector<int>* GetElementDOFs(int id_element)
+		{
+			try {
+				return this->GetElement(id_element)->GetElementDOFs();
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: MultiXFEM/MultiXFEM_Grid.h/std::vector<int>* GetElementDOFs(int id_element)\n");
+			}
+
+		}
+		int GetDOFsCount()
+		{
+			return this->DOFs_count;
+		}
+		void SetDOFsCount(int count)
+		{
+			this->DOFs_count = count;
+			this->accordance_DOF_and_vertex.resize(count);
+			for (int i = 0; i < this->accordance_DOF_and_vertex.size(); i++)
+			{
+				this->accordance_DOF_and_vertex[i] = i;
+			}
+		}
+		void AddDOF_ToEnd(int id_base_vertex)
+		{
+			this->DOFs_count++;
+			this->accordance_DOF_and_vertex.push_back(id_base_vertex);
+		}
+		
+		void CreateTopology()
+		{
+			try {
+				topology::lower::TetrahedronToEdges test_tetrahedron;
+
+				//create elements
+				for (int id_element = 0; id_element < this->GetElementsCount(); id_element++)
+				{
+					this->GetElement(id_element)->SetSelfGlobalId(id_element);
+					this->GetElement(id_element)->SetLowerElementCount(test_tetrahedron.GetLowerElementCount()); //in tetrahedron 6 edges
+				}
+				//create edge topology
+				if (true)
+				{
+					struct edge_temp
+					{
+						int num1, num2;
+						int element, local_in_element;
+					public:
+						edge_temp()
+						{
+							element = 0; local_in_element = 0;
+							num1 = 0;
+							num2 = 0;
+						}
+						edge_temp(int element, int local_in_element,
+							std::vector<int>& n)
+						{
+							this->element = element; this->local_in_element = local_in_element;
+
+							num1 = n[0];
+							num2 = n[1];
+							if (n[0] > n[1])
+							{
+								num1 = n[1];
+								num2 = n[0];
+							}
+						}
+						edge_temp(int element, int local_in_element, int n0, int n1)
+						{
+							this->element = element; this->local_in_element = local_in_element;
+
+							num1 = n0;
+							num2 = n1;
+							if (n0 > n1)
+							{
+								num1 = n1;
+								num2 = n0;
+							}
+						}
+
+						void operator= (edge_temp A)
+						{
+							this->element = A.element; this->local_in_element = A.local_in_element;
+
+							num1 = A.num1;
+							num2 = A.num2;
+						}
+						bool operator< (edge_temp A)
+						{
+							if (num1 < A.num1) return true;
+							if (num1 > A.num1) return false;
+							if (num1 == A.num1 && num2 < A.num2) return true;
+							return false;
+						}
+
+						bool operator>(edge_temp A)
+						{
+							if (num1 > A.num1) return true;
+							if (num1 < A.num1) return false;
+							if (num1 == A.num1 && num2 > A.num2) return true;
+							return false;
+						}
+						bool operator!= (edge_temp A)
+						{
+							if (num1 != A.num1 || num2 != A.num2) return true;
+							return false;
+						}
+
+						bool operator == (edge_temp A)
+						{
+							if (num1 == A.num1 && num2 == A.num2) return true;
+
+							return false;
+						}
+					};
+					struct edge
+					{
+						int num1, num2;
+						int self_global_id;
+
+						std::vector<int> element, local_in_element;
+					public:
+						edge(edge_temp A)
+						{
+							element.push_back(A.element);
+							local_in_element.push_back(A.local_in_element);
+
+							num1 = A.num1;
+							num2 = A.num2;
+						}
+						edge()
+						{
+							num1 = 0;
+							num2 = 0;
+						}
+						void set_elem(edge_temp A)
+						{
+							element.push_back(A.element);
+							local_in_element.push_back(A.local_in_element);
+
+						}
+					};
+					auto MakeRemovalOfDuplication_e = [](std::vector<edge_temp>& A, std::vector<edge>& B) -> void
+					{
+						if (A.size() != 0)
+						{
+							int k = 0, j = 0;
+
+							B.push_back(edge());
+							B[k] = A[0];
+							k++;
+
+							for (int i = 1; i < A.size(); i++)
+							{
+								if (A[j].num1 != A[i].num1 || A[j].num2 != A[i].num2) //не повтор
+								{
+									j = i;
+									B.push_back(edge());
+									B[k] = A[i];
+									k++;
+								}
+								else {
+									B[k - 1].local_in_element.push_back(A[i].local_in_element);
+									B[k - 1].element.push_back(A[i].element);
+								}
+							}
+						}
+					};
+
+					std::vector <edge_temp> e_temp;
+					std::vector <edge> edges_vector;
+					std::vector<std::vector<int>> pattern;
+					test_tetrahedron.GetLowerElementPatternInLocal(pattern);
+
+					for (int id_tetr = 0; id_tetr < this->GetElementsCount(); id_tetr++)
+					{
+						for(int id_edge = 0; id_edge < pattern.size(); id_edge++)
+						{
+							int _id_elem = id_tetr;
+							int _id_edge_in_elem = id_edge;
+							e_temp.push_back(edge_temp(
+								_id_elem, _id_edge_in_elem,
+								this->GetElement(id_tetr)->GetIdNode(pattern[id_edge][0]),
+								this->GetElement(id_tetr)->GetIdNode(pattern[id_edge][1])));
+						}
+					}
+					math::MakeQuickSort(e_temp);
+					MakeRemovalOfDuplication_e(e_temp, edges_vector);
+
+					//add Upper and Lower Elements
+					this->edges.resize(edges_vector.size());
+					for (int id_edge = 0; id_edge < edges_vector.size(); id_edge++)
+					{
+						this->edges[id_edge].SetUpperElementCount((int)edges_vector[id_edge].element.size());
+						this->edges[id_edge].SetSelfGlobalId(id_edge);
+
+						for (int id_tetr = 0; id_tetr < edges_vector[id_edge].element.size(); id_tetr++)
+						{
+							this->edges[id_edge].SetUpperElement(id_tetr, this->GetElement(edges_vector[id_edge].element[id_tetr]));
+							this->GetElement(edges_vector[id_edge].element[id_tetr])->SetLowerElement(edges_vector[id_edge].local_in_element[id_tetr], &this->edges[id_edge]);
+						}
+
+						//save geometry
+						std::vector<int> id_nodes(2);
+						id_nodes[0] = edges_vector[id_edge].num1;
+						id_nodes[1] = edges_vector[id_edge].num2;
+						std::vector<Point<double>*> P;
+						this->GetPtrCoordinateViaID(id_nodes, P);
+						this->edges[id_edge].SetGeometry(id_nodes, P);
+					}
+				}
+
+				//create vertexes topology
+				if (true)
+				{
+					struct node_temp
+					{
+						int num;
+						int edge, local_in_edge;
+					public:
+						node_temp()
+						{
+							edge = 0; local_in_edge = 0;
+							num = 0;
+						}
+						node_temp(int edge, int local_in_edge, int n1)
+						{
+							this->edge = edge; this->local_in_edge = local_in_edge;
+
+							num = n1;
+						}
+
+						void operator= (node_temp A)
+						{
+							this->edge = A.edge; this->local_in_edge = A.local_in_edge;
+
+							num = A.num;
+						}
+						bool operator< (node_temp A)
+						{
+							if (num < A.num) return true;
+							if (num > A.num) return false;
+							return false;
+						}
+
+						bool operator>(node_temp A)
+						{
+							if (num > A.num) return true;
+							if (num < A.num) return false;
+							return false;
+						}
+						bool operator!= (node_temp A)
+						{
+							if (num != A.num) return true;
+							return false;
+						}
+
+						bool operator == (node_temp A)
+						{
+							if (num == A.num) return true;
+
+							return false;
+						}
+					};
+					struct node
+					{
+						int num;
+
+						std::vector<int> edge, local_in_edge;
+					public:
+						node(node_temp A)
+						{
+							edge.push_back(A.edge);
+							local_in_edge.push_back(A.local_in_edge);
+
+							num = A.num;
+						}
+						node()
+						{
+							num = 0;
+						}
+						void set_elem(node_temp A)
+						{
+							edge.push_back(A.edge);
+							local_in_edge.push_back(A.local_in_edge);
+
+						}
+					};
+					auto MakeRemovalOfDuplication_n = [](std::vector<node_temp>& A, std::vector<node>& B) -> void
+					{
+						if (A.size() != 0)
+						{
+							int k = 0, j = 0;
+
+							B.push_back(node());
+							B[k] = A[0];
+							k++;
+
+							for (int i = 1; i < A.size(); i++)
+							{
+								if (A[j].num != A[i].num) //не повтор
+								{
+									j = i;
+									B.push_back(node());
+									B[k] = A[i];
+									k++;
+								}
+								else {
+									B[k - 1].local_in_edge.push_back(A[i].local_in_edge);
+									B[k - 1].edge.push_back(A[i].edge);
+								}
+							}
+						}
+					};
+
+					std::vector <node_temp> n_temp;
+					std::vector <node> nodes_vector;
+
+					std::vector <int> id_nodes_in_edge(2);
+
+					for (int id_edge = 0; id_edge < this->edges.size(); id_edge++)
+					{
+						auto element1D = &this->edges[id_edge];
+
+						for (int id_vertex = 0; id_vertex < element1D->GetLowerElementCount(); id_vertex++)
+						{
+							int _id_edge = id_edge;
+							int _id_vertex_in_edge = id_vertex;
+							n_temp.push_back(node_temp(
+								_id_edge, _id_vertex_in_edge,
+								this->edges[id_edge].GetIdNode(id_vertex)));
+						}
+					}
+					math::MakeQuickSort(n_temp);
+					MakeRemovalOfDuplication_n(n_temp, nodes_vector);
+
+					this->vertexes.resize(nodes_vector.size());
+					//add Upper and Lower Elements
+					for (int id_node = 0; id_node < nodes_vector.size(); id_node++)
+					{
+						this->vertexes[id_node].SetUpperElementCount((int)nodes_vector[id_node].edge.size());
+						this->vertexes[id_node].SetSelfGlobalId(id_node);
+
+						for (int id_edge = 0; id_edge < nodes_vector[id_node].edge.size(); id_edge++)
+						{
+							this->vertexes[id_node].SetUpperElement(id_edge, &this->edges[nodes_vector[id_node].edge[id_edge]]);
+							this->edges[nodes_vector[id_node].edge[id_edge]].SetLowerElement(nodes_vector[id_node].local_in_edge[id_edge], &this->vertexes[id_node]);
+						}
+
+						//save geometry
+						std::vector<int> id_nodes(1);
+						id_nodes[0] = nodes_vector[id_node].num;
+						std::vector<Point<double>*> P;
+						this->GetPtrCoordinateViaID(id_nodes, P);
+						this->vertexes[id_node].SetGeometry(id_nodes, P);
+					}
+				}
+
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: FEM/FEM_Grid.h/Grid_forScal_OrderBF2::CreateTopology()\n");
+			}
+		}
+
+		void CreateFunctionalSpaces()
+		{
+			this->SetDOFsCount((int)this->vertexes.size() + (int)this->edges.size());
+			for (int id_element = 0; id_element < this->GetElementsCount(); id_element++)
+			{
+				auto element = this->GetElement(id_element);
+				element->ResizeDOF(element->GetNodesCount() + element->GetLowerElementCount()); //nodes+edges = 2 Order
+				element->SolveAlphaMatrix();
+
+				//nodes functions
+				for (int _id_vertex = 0; _id_vertex < element->GetNodesCount(); _id_vertex++)
+				{
+					std::function< double(Point<double> X)> bf = [element, _id_vertex](Point<double> X) -> double
+					{
+						double result;
+						double Li = element->alpha[_id_vertex][0] + element->alpha[_id_vertex][1] * X.x + element->alpha[_id_vertex][2] * X.y + element->alpha[_id_vertex][3] * X.z;
+						result = Li * (2 * Li - 1);
+						return result;
+					};
+					std::function< Point<double>(Point<double> X)> derivative_bf = [element, _id_vertex](Point<double> X) -> Point<double>
+					{
+						Point<double> result;
+						double Li = element->alpha[_id_vertex][0] + element->alpha[_id_vertex][1] * X.x + element->alpha[_id_vertex][2] * X.y + element->alpha[_id_vertex][3] * X.z;
+						double Li_dX = element->alpha[_id_vertex][1];
+						double Li_dY = element->alpha[_id_vertex][2];
+						double Li_dZ = element->alpha[_id_vertex][3];
+
+						result.x = Li_dX * (2 * Li - 1) + Li * 2 * Li_dX;
+						result.y = Li_dY * (2 * Li - 1) + Li * 2 * Li_dY;
+						result.z = Li_dZ * (2 * Li - 1) + Li * 2 * Li_dZ;
+
+						return result;
+					};
+					element->SetDOF(_id_vertex, element->GetIdNode(_id_vertex), bf, derivative_bf);
+				}
+
+				//edges functions
+				
+				for (int _local_id_edge = 0; _local_id_edge < element->GetLowerElementCount(); _local_id_edge++)
+				{
+					auto target_edge = &this->edges[element->GetLowerElement(_local_id_edge)->GetSelfGlobalId()];
+					int _local_id_node_0 = element->GetLocalID_forVertexID(target_edge->GetIdNode(0));
+					int _local_id_node_1 = element->GetLocalID_forVertexID(target_edge->GetIdNode(1));
+
+					std::function< double(Point<double> X)> bf = [element, _local_id_node_0, _local_id_node_1](Point<double> X) -> double
+					{
+						double result;
+						double L0 = element->alpha[_local_id_node_0][0] 
+							+ element->alpha[_local_id_node_0][1] * X.x 
+							+ element->alpha[_local_id_node_0][2] * X.y 
+							+ element->alpha[_local_id_node_0][3] * X.z;
+						double L1 = element->alpha[_local_id_node_1][0]
+							+ element->alpha[_local_id_node_1][1] * X.x
+							+ element->alpha[_local_id_node_1][2] * X.y
+							+ element->alpha[_local_id_node_1][3] * X.z;
+
+						result = 4 * L0 * L1;
+
+						return result;
+					};
+					std::function< Point<double>(Point<double> X)> derivative_bf = [element, _local_id_node_0, _local_id_node_1](Point<double> X) -> Point<double>
+					{
+						Point<double> result;
+						double L0 = element->alpha[_local_id_node_0][0]
+							+ element->alpha[_local_id_node_0][1] * X.x
+							+ element->alpha[_local_id_node_0][2] * X.y
+							+ element->alpha[_local_id_node_0][3] * X.z;
+						double L1 = element->alpha[_local_id_node_1][0]
+							+ element->alpha[_local_id_node_1][1] * X.x
+							+ element->alpha[_local_id_node_1][2] * X.y
+							+ element->alpha[_local_id_node_1][3] * X.z;
+						double L0_dX = element->alpha[_local_id_node_0][1];
+						double L0_dY = element->alpha[_local_id_node_0][2];
+						double L0_dZ = element->alpha[_local_id_node_0][3];
+						double L1_dX = element->alpha[_local_id_node_1][1];
+						double L1_dY = element->alpha[_local_id_node_1][2];
+						double L1_dZ = element->alpha[_local_id_node_1][3];
+
+						result.x = 4 * L0_dX * L1 + 4 * L0 * L1_dX;
+						result.y = 4 * L0_dY * L1 + 4 * L0 * L1_dY;
+						result.z = 4 * L0_dZ * L1 + 4 * L0 * L1_dZ;
+
+						return result;
+					};
+					
+					element->SetDOF(element->GetNodesCount() + _local_id_edge,
+						vertexes.size() + element->GetLowerElement(_local_id_edge)->GetSelfGlobalId(), bf, derivative_bf);
+				}
+			}
+		}
+		template <typename Dirichlet, typename Neumann>
+		void CreateBoundaryConditions(std::vector<Dirichlet>& first_boundary, std::vector<Neumann>& second_boundary)
+		{
+			//1st boundary
+			{
+				int N_1st = 0;
+				for (int id_type = 0; id_type < first_boundary.size(); id_type++)
+				{
+					N_1st += first_boundary[id_type].id_vertexes.size();
+				}
+				this->boundary_vertexes.resize(N_1st);
+				int id = 0;
+				for (int id_type = 0; id_type < first_boundary.size(); id_type++)
+				{
+					std::vector<int> edges_on_boundaries(this->edges.size());
+					//base vertexes (1 Order)
+					for (int id_vertex = 0; id_vertex < first_boundary[id_type].id_vertexes.size(); id_vertex++)
+					{
+						int global_id_vertex = first_boundary[id_type].id_vertexes[id_vertex];
+						this->boundary_vertexes[id].boundary_value = first_boundary[id_type].value;
+						this->boundary_vertexes[id].SetIdNode(0, global_id_vertex);
+						this->boundary_vertexes[id].SetNode(0, this->GetPtrCoordinateViaID(global_id_vertex));
+						int id_tetr = this->vertexes[global_id_vertex].GetUpperElement(0)->GetUpperElement(0)->GetSelfGlobalId();
+						this->boundary_vertexes[id].SetDOF(global_id_vertex, 
+							*this->GetElement(id_tetr)->GetBasisFunctionInGlobalID(global_id_vertex),
+							*this->GetElement(id_tetr)->GetDerivativeOfBasisFunctionInGlobalID(global_id_vertex));
+						id++;
+
+						//check additional edges-DOF for current boundary condition
+						auto target_vertex = &(this->vertexes[global_id_vertex]);
+						for (int i = 0; i < target_vertex->GetUpperElementCount(); i++)
+						{
+							auto target_edge = target_vertex->GetUpperElement(i);
+							edges_on_boundaries[target_edge->GetSelfGlobalId()]++;
+						}
+					}
+
+					//check additional edges-DOF for current boundary condition
+					for (int id_edge = 0; id_edge < edges_on_boundaries.size(); id_edge++)
+					{
+						//all vertexes of edge are in boundary condition
+						if (edges_on_boundaries[id_edge] >= 2)
+						{
+							int id_DOF = this->vertexes.size() + id_edge;
+							int id_left_vertex = this->edges[id_edge].GetLowerElement(0)->GetSelfGlobalId();
+							int id_right_vertex = this->edges[id_edge].GetLowerElement(0)->GetSelfGlobalId();
+							this->edges[id_edge].geo_centr = (vertexes[id_left_vertex].GetNode(0) + vertexes[id_right_vertex].GetNode(0)) / 2.0;
+							
+							BoundaryVertex_forScal_OrderBF2 new_BV;// = new BoundaryVertex_forScal_OrderBF2();
+							new_BV.boundary_value = first_boundary[id_type].value;
+							new_BV.SetIdNode(0, id_DOF);
+							new_BV.SetNode(0, &this->edges[id_edge].geo_centr); //костыль!!!
+							int id_tetr = this->edges[id_edge].GetUpperElement(0)->GetSelfGlobalId();
+							new_BV.SetDOF(id_DOF,
+								*this->GetElement(id_tetr)->GetBasisFunctionInGlobalID(id_DOF),
+								*this->GetElement(id_tetr)->GetDerivativeOfBasisFunctionInGlobalID(id_DOF));
+
+							this->boundary_vertexes.push_back(new_BV);
+						}
+					}
+				}
+			}
+
+			//2nd boundary
+			/*{
+				int N_2st = 0;
+				for (int id_type = 0; id_type < second_boundary.size(); id_type++)
+				{
+					N_2st += second_boundary[id_type].id_vertexes_as_triangle.size();
+				}
+				this->boundary_faces.resize(N_2st);
+				int id = 0;
+				for (int id_type = 0; id_type < second_boundary.size(); id_type++)
+				{
+					for (int id_face = 0; id_face < second_boundary[id_type].id_vertexes_as_triangle.size(); id_face++)
+					{
+						int id_base_element = second_boundary[id_type].id_base_element[id_face];
+						this->boundary_faces[id].SetUpperElementCount(1);
+						this->boundary_faces[id].SetUpperElement(0, this->GetElement(id_base_element));
+
+						this->boundary_faces[id].boundary_value = second_boundary[id_type].value;
+						for (int id_vertex = 0; id_vertex < this->boundary_faces[id].GetNodesCount(); id_vertex++)
+						{
+							this->boundary_faces[id].SetIdNode(id_vertex, second_boundary[id_type].id_vertexes_as_triangle[id_face][id_vertex]);
+							this->boundary_faces[id].SetNode(id_vertex, this->GetPtrCoordinateViaID(second_boundary[id_type].id_vertexes_as_triangle[id_face][id_vertex]));
+						}
+						id++;
+					}
+				}
+			}*/
+
+		}
+		template <typename Dirichlet, typename Neumann>
+		void Initialization(math::SimpleGrid& base_grid, std::vector<Dirichlet>& first_boundary, std::vector<Neumann>& second_boundary)
+		{
+			try {
+				//create geometry space
+				math::MakeCopyVector_A_into_B(base_grid.xyz, *(this->GetCoordinates()));
+				this->CreateXYZline();
+				this->SetElementsCount((int)base_grid.nvtr.size());
+				for (int id_element = 0; id_element < this->GetElementsCount(); id_element++)
+				{
+					auto new_element = this->GetElement(id_element);
+
+					std::vector<Point<double>*> P(base_grid.nvtr[id_element].size());
+					for (int n = 0; n < P.size(); n++)
+					{
+						P[n] = this->GetPtrCoordinateViaID(base_grid.nvtr[id_element][n]);
+					}
+					new_element->SetGeometry(base_grid.nvtr[id_element], P);
+					new_element->SetIdDomain(base_grid.nvkat[id_element]);
+				}
+				this->CreateQTree();
+
+				//create topology
+				CreateTopology();
+
+				//create functional spaces
+				CreateFunctionalSpaces();
+
+				//create boundary conditions (geometry&topology&function)
+				CreateBoundaryConditions(first_boundary, second_boundary);
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: MultiXFEM/MultiXFEM_Grid.h/void Initialization(geometry::Grid<geometry::Tetrahedron> &base_grid)\n");
+			}
+		}
+
+		template <typename Matrix>
+		void CreationPortrait(Matrix& matrix)
+		{
+			try {
+				printf_s("\n");
+				std::vector<std::vector<int>> tmp_down_columns(this->GetDOFsCount()), tmp_up_columns(this->GetDOFsCount());
+				std::vector<std::vector<int>> down_columns(this->GetDOFsCount()), up_columns(this->GetDOFsCount());
+				for (int id_elem = 0; id_elem < this->GetElementsCount(); id_elem++)
+				{
+					if (id_elem % 100 == 0)
+						printf_s("Work with element[%d]\r", id_elem);
+					auto element = this->GetElement(id_elem);
+					for (int i = 0; i < element->GetDOFsCount(); i++)
+					{
+						int global_dof_i = element->GetDOFInLocalID(i);
+
+						for (int j = i + 1; j < element->GetDOFsCount(); j++)
+						{
+							int global_dof_j = element->GetDOFInLocalID(j);
+							if (global_dof_i > global_dof_j) //down elements of matrix
+							{
+								tmp_down_columns[global_dof_i].push_back(global_dof_j);
+								tmp_up_columns[global_dof_j].push_back(global_dof_i);
+							}
+							else
+							{
+								tmp_down_columns[global_dof_j].push_back(global_dof_i);
+								tmp_up_columns[global_dof_i].push_back(global_dof_j);
+							}
+						}
+					}
+				}
+				printf_s("                                  \r");
+				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
+				{
+					if (id_string % 100 == 0)
+						printf_s("Work with row[%d]\r", id_string);
+
+					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);
+					math::MakeQuickSort(tmp_up_columns[id_string], 0, (int)tmp_up_columns[id_string].size() - 1);
+
+					math::MakeRemovalOfDuplication(tmp_down_columns[id_string], down_columns[id_string]);
+					math::MakeRemovalOfDuplication(tmp_up_columns[id_string], up_columns[id_string]);
+				}
+
+				matrix.Initialization(up_columns, down_columns);
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: MultiXFEM/MultiXFEM_Grid.h/void CreationPortrait(Matrix matrix)\n");
+			}
+		}
+
+		double GetSolutionInPoint(int id_element, Point<double> X, std::vector<double>& solution)
+		{
+			auto element = this->GetElement(id_element);
+			double result = 0;
+			for (int j = 0; j < element->GetDOFsCount(); j++)
+			{
+				auto bf = (*element->GetBasisFunctionInLocalID(j))(X);
+				auto value = solution[element->GetDOFInLocalID(j)];
+				result += bf * value;
+			}
+			return result;
+		}
+		Point<double> GetDerevativeFromSolutionInPoint(int id_element, Point<double> X, std::vector<double>& solution)
+		{
+			auto element = this->GetElement(id_element);
+			Point<double> result;
+			for (int j = 0; j < element->GetDOFsCount(); j++)
+			{
+				auto bf = (*element->GetDerivativeOfBasisFunctionInLocalID(j))(X);
+				auto value = solution[element->GetDOFInLocalID(j)];
+				result += bf * value;
+			}
+			return result;
+		}
+
+		void printTecPlot3D(/*char *directory,*/ FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
+		{
+			int DEL_domain = 10;
+			fprintf_s(fdat, "TITLE     = \"numerical\"\n");
+			fprintf_s(fdat, "VARIABLES = \"x\"\n \"y\"\n \"z\"\n");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " \"");
+				for (int j = 0; j < value[i].size(); j++)
+				{
+					if (name_value[i][j] != '\0')
+					{
+						fprintf_s(fdat, "%c", name_value[i][j]);
+					}
+					else
+					{
+						break;
+					}
+				}
+				fprintf_s(fdat, "\"\n");
+			}
+
+			/*fprintf_s(fdat, " \"sigma_xx\"\n");
+			fprintf_s(fdat, " \"sigma_yy\"\n");
+			fprintf_s(fdat, " \"sigma_zz\"\n");
+			fprintf_s(fdat, " \"eps_xx\"\n");
+			fprintf_s(fdat, " \"eps_yy\"\n");
+			fprintf_s(fdat, " \"eps_zz\"\n");*/
+
+			int num_elem = this->GetElementsCount();
+			for (int i = 0; i < this->GetElementsCount(); i++)
+			{
+				if (this->GetElement(i)->GetIdDomain() == DEL_domain) num_elem--;
+			}
+			fprintf_s(fdat, "ZONE T=\"%s\"\n", name_zone);
+			fprintf_s(fdat, " N=%d,  E=%d, F=FEBLOCK ET=Tetrahedron \n", this->GetVertexCount(), num_elem);
+			fprintf_s(fdat, " VARLOCATION=(NODAL NODAL NODAL");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " CELLCENTERED");
+			}
+			fprintf_s(fdat, ")\n");
+
+			for (int i = 0; i < this->GetVertexCount(); i++)
+				fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).x);
+			fprintf_s(fdat, "\n");
+			for (int i = 0; i < this->GetVertexCount(); i++)
+				fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).y);
+			fprintf_s(fdat, "\n");
+			for (int i = 0; i < this->GetVertexCount(); i++)
+				fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).z);
+			fprintf_s(fdat, "\n");
+
+			for (int i = 0; i < value.size(); i++)
+			{
+				for (int j = 0; j < this->GetElementsCount(); j++)
+				{
+					if (this->GetElement(i)->GetIdDomain() != DEL_domain)
+					{
+						fprintf_s(fdat, "%.10lf\n", value[i][j]);
+					}
+				}
+				fprintf_s(fdat, "\n");
+			}
+
+			for (int i = 0; i < this->GetElementsCount(); i++)
+			{
+				if (this->GetElement(i)->GetIdDomain() != DEL_domain)
+				{
+					for (int j = 0; j < this->GetElement(i)->GetNodesCount(); j++)
+						fprintf_s(fdat, "%d ", this->GetElement(i)->GetIdNode(j) + 1);
+				}
+				fprintf_s(fdat, "\n");
+			}
+
+			fclose(fdat);
+		}
+		void printTecPlot3D_DiffDomains(/*char *directory,*/ FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
+		{
+			fprintf_s(fdat, "TITLE     = \"numerical\"\n");
+			fprintf_s(fdat, "VARIABLES = \"x\"\n \"y\"\n \"z\"\n");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " \"");
+				for (int j = 0; j < value[i].size(); j++)
+				{
+					if (name_value[i][j] != '\0')
+					{
+						fprintf_s(fdat, "%c", name_value[i][j]);
+					}
+					else
+					{
+						break;
+					}
+				}
+				fprintf_s(fdat, "\"\n");
+			}
+
+			std::vector<int> in_domain(this->GetDomainsCount());
+			for (int i = 0; i < this->GetElementsCount(); i++)
+			{
+				in_domain[this->GetElement(i)->GetIdDomain()]++;
+			}
+
+			for (int id_domain = 0; id_domain < this->GetDomainsCount(); id_domain++)
+			{
+				if (in_domain[id_domain] != 0)
+				{
+					fprintf_s(fdat, "ZONE T=\"%s_%d\"\n", name_zone, id_domain);
+					fprintf_s(fdat, " N=%d,  E=%d, F=FEBLOCK ET=Tetrahedron \n", this->GetVertexCount(), in_domain[id_domain]);
+					fprintf_s(fdat, " VARLOCATION=(NODAL NODAL NODAL");
+					for (int i = 0; i < value.size(); i++)
+					{
+						if (value[i].size() == this->GetElementsCount()) fprintf_s(fdat, " CELLCENTERED");
+						else fprintf_s(fdat, " NODAL");
+					}
+					fprintf_s(fdat, ")\n");
+
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).x);
+					fprintf_s(fdat, "\n");
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).y);
+					fprintf_s(fdat, "\n");
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).z);
+					fprintf_s(fdat, "\n");
+
+					for (int i = 0; i < value.size(); i++)
+					{
+						if (value[i].size() == this->GetElementsCount())
+						{
+							for (int j = 0; j < this->GetElementsCount(); j++)
+								if (this->GetElement(j)->GetIdDomain() == id_domain)
+									fprintf_s(fdat, "%.10e\n", value[i][j]);
+						}
+						else {
+							for (int j = 0; j < value[i].size(); j++)
+								fprintf_s(fdat, "%.10e\n", value[i][j]);
+						}
+						fprintf_s(fdat, "\n");
+					}
+
+					for (int i = 0; i < this->GetElementsCount(); i++)
+					{
+						if (this->GetElement(i)->GetIdDomain() == id_domain)
+						{
+							for (int j = 0; j < this->GetElement(i)->GetNodesCount(); j++)
+								fprintf_s(fdat, "%d ", this->GetElement(i)->GetIdNode(j) + 1);
+						}
+						fprintf_s(fdat, "\n");
+					}
+				}
+			}
+			fclose(fdat);
+		}
+
+
+		~Grid_forScal_OrderBF2()
+		{
+			DOFs_count = 0;
+			std::vector<BoundaryVertex_forScal_OrderBF2> v_b1;
+			std::vector<BoundaryVertex_forScal_OrderBF2>(v_b1).swap(this->boundary_vertexes);
+			std::vector<BoundaryFace_forScal_OrderBF2> v_b2;
+			std::vector<BoundaryFace_forScal_OrderBF2>(v_b2).swap(this->boundary_faces);
+			std::vector<int> v_p;
+			std::vector<int>(v_p).swap(this->accordance_DOF_and_vertex);
+			std::vector<Vertex> v_v;
+			std::vector<Vertex>(v_v).swap(this->vertexes);
 
 			this->DeleteGeometriGrid();
 		}
@@ -761,7 +2082,7 @@ namespace FEM{
 
 				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
 				{
-					for (int _bf_local_id_J = 0; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
 					{
 
 						auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
@@ -818,6 +2139,7 @@ namespace FEM{
 
 							double V = this->GetVolume();
 							local_matix.A[_bf_local_id_I][_bf_local_id_J] = this->SolveIntegral(StiffnessMatrix);
+							local_matix.A[_bf_local_id_J][_bf_local_id_I] = local_matix.A[_bf_local_id_I][_bf_local_id_J].T();
 						}
 						if (false)
 						{
@@ -1247,6 +2569,11 @@ namespace FEM{
 		{
 			DOFs_count = 0;
 		};
+
+		topology::Vertex<topology::lower::EmptyElement, topology::upper::Tetrahedron>* GetTopologyVertex(int id)
+		{
+			return &(vertexes[id]);
+		}
 
 		std::vector<int>* GetElementDOFs(int id_element)
 		{

@@ -541,12 +541,18 @@ void Solve_ElasticDeformationProblem()
 	std::vector<Point<double>> Solution; //output
 
 
+	clock_t t_after = clock();
+	double start = omp_get_wtime();
+
+
+
 	//char properties_file[1000] = { "E:/+cyl/800el/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/67k/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/638k/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x50x200/param.txt" };
 	//char properties_file[1000] = { "E:/Box/200x200x200/200k_fem/param_for_solver.txt" };
-	char properties_file[1000] = { "./param_for_solver.txt" };
+	char properties_file[1000] = { "D:/Babenko_2022/1cracks/FEM/75/param_for_solver.txt" };
+	//char properties_file[1000] = { "./param_for_solver.txt" };
 	//char properties_file[1000] = { "base_properties.txt" };
 	printf_s("The properties file contains the information:\n==========================================\n");
 	printf_s("\tDo you need to print to a log file? 0-false/1-true\n");
@@ -812,6 +818,8 @@ void Solve_ElasticDeformationProblem()
 			{
 				for (int id_element = 0; id_element < geo_grid.nvtr.size(); id_element++)
 				{
+					if(id_element%100)
+					printf_s("create boundary elem[%d-%d]\r", id_element, geo_grid.nvtr.size());
 					auto _tmp = math::GetConfluence(geo_grid.nvtr[id_element], id_vertexes[id_type]);
 					if (_tmp.size() == 3)
 					{
@@ -899,7 +907,7 @@ void Solve_ElasticDeformationProblem()
 	int N_domain;
 	{
 		char _line[1000];
-		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+ 		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
 		std::vector<int> val;
 		math::ParserStringToVectorInt(_line, val, " ");
 		N_domain = val[0];
@@ -944,6 +952,16 @@ void Solve_ElasticDeformationProblem()
 			Solution //output
 		);
 
+		double end = omp_get_wtime();
+		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+		FILE* ftime;
+		char ftime_name[1000];
+		sprintf_s(ftime_name, "%s/time_result.dat", base_result_directory);
+		fopen_s(&ftime, ftime_name, "w");
+		fprintf_s(ftime, "start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+		fclose(ftime);
+
 		//output solution
 		printf_s("Print the mech result into .dat file... ");
 		//with deformations
@@ -959,7 +977,7 @@ void Solve_ElasticDeformationProblem()
 			sprintf_s(name_v_tmp[0], "sigma_xx");
 			sprintf_s(name_v_tmp[1], "sigma_yy");
 			sprintf_s(name_v_tmp[2], "sigma_zz");
-			sprintf_s(name_v_tmp[3], "Ux");
+			sprintf_s(name_v_tmp[3], "VonMises_stress");
 			sprintf_s(name_v_tmp[4], "Uy");
 			sprintf_s(name_v_tmp[5], "Uz");
 			for (int i = 0; i < name_value.size(); i++)
@@ -1002,6 +1020,11 @@ void Solve_ElasticDeformationProblem()
 				double eps_inv = sqrt((eps[0] - eps[1])*(eps[0] - eps[1]) + (eps[1] - eps[2])*(eps[1] - eps[2]) + (eps[2] - eps[0])*(eps[2] - eps[0]) +
 					3 * (eps[3] * eps[3] + eps[4] * eps[4] + eps[5] * eps[5]) / 2.) * sqrt(2.) / 3;
 
+				double mises_stress = sqrt((sigma[0] - sigma[1]) * (sigma[0] - sigma[1])
+					+ (sigma[1] - sigma[2]) * (sigma[1] - sigma[2])
+					+ (sigma[0] - sigma[2]) * (sigma[0] - sigma[2])
+					+ 6 * (sigma[3] * sigma[3] + sigma[4] * sigma[4] + sigma[5] * sigma[5]) / 2.0);
+
 				value[0][i] = sigma[0];
 				value[1][i] = sigma[1];
 				value[2][i] = sigma[2];
@@ -1010,7 +1033,7 @@ void Solve_ElasticDeformationProblem()
 				value[4][i] = eps[1];
 				value[5][i] = eps[2];
 
-				value[3][i] = U.x;
+				value[3][i] = mises_stress;
 				value[4][i] = U.y;
 				value[5][i] = U.z;
 				
@@ -3455,7 +3478,7 @@ void Solve_ElastodynamicsProblem_Explicit_v2()
 
 				//current_residual = abs(newSLAE.BiCG_Stab(MaxSize, needed_residual));
 				//current_residual = abs(StiffnessMatrix_doubleSLAE.MSG(MaxSize, needed_residual));
-				current_residual = abs(StiffnessMatrix_doubleSLAE.MSG_Preconditioning(MaxSize, needed_residual, Predcondor));
+				//current_residual = abs(StiffnessMatrix_doubleSLAE.MSG_Preconditioning(MaxSize, needed_residual, Predcondor));
 				//current_residual = abs(newSLAE.BiCG_Stab_Preconditioning(MaxSize, needed_residual, Predcondor));
 
 				if (current_residual < needed_residual)
@@ -5910,18 +5933,15 @@ void Solve_ElasticDeformationProblem_MSH(char properties_file[1000])
 
 		std::vector<double> volumes_before(_materials.size()), volumes_after(_materials.size());
 		double obj_volume_before = 0, obj_volume_after = 0;
-		for (int i = 0; i < volumes_before.size(); i++)
+		for (int j = 0; j < geo_grid.nvkat.size(); j++)
 		{
-			for (int j = 0; j < geo_grid.nvkat.size(); j++)
-			{
-				double vol = geometry::Tetrahedron::GetVolume(
-					geo_grid.xyz[geo_grid.nvtr[j][0]],
-					geo_grid.xyz[geo_grid.nvtr[j][1]],
-					geo_grid.xyz[geo_grid.nvtr[j][2]],
-					geo_grid.xyz[geo_grid.nvtr[j][3]]);
-				obj_volume_before += vol;
-				volumes_before[geo_grid.nvkat[j]] += vol;
-			}
+			double vol = geometry::Tetrahedron::GetVolume(
+				geo_grid.xyz[geo_grid.nvtr[j][0]],
+				geo_grid.xyz[geo_grid.nvtr[j][1]],
+				geo_grid.xyz[geo_grid.nvtr[j][2]],
+				geo_grid.xyz[geo_grid.nvtr[j][3]]);
+			obj_volume_before += vol;
+			volumes_before[geo_grid.nvkat[j]] += vol;
 		}
 
 		FEM::FEM_forElasticDeformation(
@@ -5934,28 +5954,30 @@ void Solve_ElasticDeformationProblem_MSH(char properties_file[1000])
 			solver_grid, //output
 			Solution //output
 		);
+		
+		//изменение объема от нагрузки
+		if (true)
+		{
+			double full_volume_by_part_before = 0;// solver_grid.GetFullVolumeByPart();
 
-		for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
-		{
-			solver_grid.MoveTheVertex(solver_grid.accordance_DOF_and_vertex[id_DOF], Solution[id_DOF]);
-		}
-		for (int i = 0; i < volumes_after.size(); i++)
-		{
+			for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
+			{
+				solver_grid.MoveTheVertex(solver_grid.accordance_DOF_and_vertex[id_DOF], Solution[id_DOF]);
+			}
 			for (int j = 0; j < solver_grid.GetElementsCount(); j++)
 			{
 				double vol = solver_grid.GetElement(j)->GetVolume();
 				obj_volume_after += vol;
 				volumes_after[solver_grid.GetElement(j)->GetIdDomain()] += vol;
 			}
-		}
-		for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
-		{
-			solver_grid.MoveTheVertex(solver_grid.accordance_DOF_and_vertex[id_DOF], Solution[id_DOF] * (-1));
-		}
+			
+			double full_volume_by_part_after = 0;// solver_grid.GetFullVolumeByPart();
 
-		//изменение объема от нагрузки
-		if (true)
-		{
+			for (int id_DOF = 0; id_DOF < Solution.size(); id_DOF++)
+			{
+				solver_grid.MoveTheVertex(solver_grid.accordance_DOF_and_vertex[id_DOF], Solution[id_DOF] * (-1));
+			}
+
 			FILE* fout_volume;
 			char name_vol[5000];
 			sprintf_s(name_vol, "%s/Volume_result.txt", base_result_directory);
@@ -5981,23 +6003,23 @@ void Solve_ElasticDeformationProblem_MSH(char properties_file[1000])
 			}
 
 			fprintf_s(fout_volume, "\n----result before deformations----\n");
-			fprintf_s(fout_volume, "Full volume %.4e\n", obj_volume_before);
+			fprintf_s(fout_volume, "Full volume %.6e (by part %.6e)\n", obj_volume_before, full_volume_by_part_before);
 			for (int i = 0; i < volumes_before.size(); i++)
 			{
-				if (volumes_before[i] > 0.01)
-					fprintf_s(fout_volume, "%d domain: %.4e (%.2lf%%)\n", i, volumes_before[i], volumes_before[i] / obj_volume_before * 100);
+				if (volumes_before[i] / obj_volume_before * 100 > 0.01)
+					fprintf_s(fout_volume, "%d domain: %.6e (%.6lf%%)\n", i, volumes_before[i], volumes_before[i] / obj_volume_before * 100);
 				else
-					fprintf_s(fout_volume, "%d domain: %.4e (%.2e%%)\n", i, volumes_before[i], volumes_before[i] / obj_volume_before * 100);
+					fprintf_s(fout_volume, "%d domain: %.6e (%.6e%%)\n", i, volumes_before[i], volumes_before[i] / obj_volume_before * 100);
 			}
 
 			fprintf_s(fout_volume, "\n----result after deformations----\n");
-			fprintf_s(fout_volume, "Full volume %.4e\n", obj_volume_after);
+			fprintf_s(fout_volume, "Full volume %.6e (by part %.6e)\n", obj_volume_after, full_volume_by_part_after);
 			for (int i = 0; i < volumes_after.size(); i++)
 			{
-				if (volumes_after[i] > 0.01)
-					fprintf_s(fout_volume, "%d domain: %.4e (%.2lf%%)\n", i, volumes_after[i], volumes_after[i] / obj_volume_after * 100);
+				if (volumes_after[i] / obj_volume_after * 100 > 0.01)
+					fprintf_s(fout_volume, "%d domain: %.6e (%.6lf%%)\n", i, volumes_after[i], volumes_after[i] / obj_volume_after * 100);
 				else
-					fprintf_s(fout_volume, "%d domain: %.4e (%.2e%%)\n", i, volumes_after[i], volumes_after[i] / obj_volume_after * 100);
+					fprintf_s(fout_volume, "%d domain: %.6e (%.6e%%)\n", i, volumes_after[i], volumes_after[i] / obj_volume_after * 100);
 			}
 			fclose(fout_volume);
 		}
@@ -6014,7 +6036,7 @@ void Solve_ElasticDeformationProblem_MSH(char properties_file[1000])
 			sprintf_s(name_in_file, "Elastic");
 			std::vector<std::vector<char>> name_value(6);
 			char name_v_tmp[6][100];
-			sprintf_s(name_v_tmp[0], "sigma_xx");
+			sprintf_s(name_v_tmp[0], "sigma_mises");
 			sprintf_s(name_v_tmp[1], "sigma_yy");
 			sprintf_s(name_v_tmp[2], "sigma_zz");
 			sprintf_s(name_v_tmp[3], "Ux");
@@ -6062,7 +6084,7 @@ void Solve_ElasticDeformationProblem_MSH(char properties_file[1000])
 
 				if (E > 0)
 				{
-					value[0][i] = sigma[0];
+					value[0][i] = sigma_inv;
 					value[1][i] = sigma[1];
 					value[2][i] = sigma[2];
 
@@ -7351,7 +7373,6 @@ void Solve_ViscoElasticDeformationProblem()
 
 	solver_grid.~Grid_forMech();
 }
-
 void Solve_ViscoElasticDeformationProblem_viaNewton()
 {
 	FEM::Grid_forMech solver_grid; //output
@@ -8380,8 +8401,8 @@ void TransferSelfIntoMSH()
 		double value;
 		std::vector<int> id_face(3);
 		fscanf_s(fin, "%d %d %d %d %d %d", &parent_elem0, &parent_elem1, &id_face[0], &id_face[1], &id_face[2], &type);
-		parent_elem0-=2;
-		parent_elem1-=2;
+		parent_elem0--;
+		parent_elem1--;
 		id_face[0]--;
 		id_face[1]--;
 		id_face[2]--;
@@ -8416,9 +8437,9 @@ void SLAE_testing()
 		A.X[i] = 1e-10;
 	}
 
-	M.PrecondorSSOR_summetric(0.75, A);
+	M.PrecondorSSOR(0.75, A);
 	double residual;
-	residual = A.MSG_Preconditioning(N, 1e-10, M);
+	//residual = A.MSG_PreconditioningSSOR(N, 1e-10, M);
 	residual = A.MSG(N, 1e-10);
 }
 
@@ -8432,7 +8453,7 @@ int main()
 	//TransferSelfIntoMSH();
 	//Solve_ElastodynamicsProblem();
 	//Solve_ElastodynamicsProblem_SelfDeform();
-	Solve_ElastodynamicsProblem_SelfDeform_2Order();
+	//Solve_ElastodynamicsProblem_SelfDeform_2Order();
 	//Solve_ElastodynamicsProblem_Explicit();
 
 	//Solve_ViscoElasticDeformationProblem();
@@ -8441,22 +8462,21 @@ int main()
 
 	//TransferSelfIntoMSH();
 
-	/*char base_name[1000] = {"./param_for_solver"};
+	char base_name[1000] = { "./param_for_solver" };
+	//char base_name[1000] = {"D:/Lab1104_2019/Mesh1/param_for_solver"};
 	char properties_file[1000];
 	int I = 0;
 	sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);
-
 	FILE* fparam;
 	fopen_s(&fparam, properties_file, "r");
 	while (fparam != NULL)
 	{
 		fclose(fparam);
-
 		Solve_ElasticDeformationProblem_MSH(properties_file);
-		
 		I++;
 		sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);
-	}*/
+		fopen_s(&fparam, properties_file, "r");
+	}
 
 	int a;
 	scanf_s("%d", &a);

@@ -2655,6 +2655,8 @@ namespace MultiXFEM {
 		solver_grid.Initialization(geo_grid, first_boundary, second_boundary);
 		printf_s("complite                   \n\n");
 
+		//return;
+
 		CSSD_Matrix<Tensor2Rank3D, Point<double>> global_SLAE;
 
 		printf("Creation the SLAE portrait...");
@@ -2692,8 +2694,16 @@ namespace MultiXFEM {
 				{
 					return (solver_grid.GetDomain(0))->forMech.GetPressureOfFluid();
 				};
+
+				int p0 = element->GetLocalID_forDOF(0);
+				int p1 = element->GetLocalID_forDOF(1340);
+				if (p0 >= 0 && p1 >= 0)
+				{
+					printf("%d\r", id_elem);
+				}
+
 				element->SolveLocalMatrix(local_SLAE[id_elem], koefD);
-				element->SolveLocalCohesiveMatrix(local_SLAE[id_elem], koefCohesive);
+				//element->SolveLocalCohesiveMatrix(local_SLAE[id_elem], koefCohesive);
 
 			}
 			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
@@ -2719,7 +2729,7 @@ namespace MultiXFEM {
 		}
 
 		//Boundary condition
-		{
+		if(false) {
 			global_SLAE.MakeDivideOnSqrtFormSumm();
 
 			//first condition
@@ -2887,83 +2897,198 @@ namespace MultiXFEM {
 			sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary.txt", problem_directory);
 			PrintMatrix(name, global_SLAE);*/
 		}
+		CSSD_Matrix<double, double> newSLAE;
+		math::MakeCopyMatrix_A_into_B(global_SLAE, newSLAE);
+		//by double matrix;
+		if (true)
+		{
+			std::vector<int> use_id;
+			printf("First boundary conditions...");
+			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			{
+				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+				Point<bool> is_take;
+				Point<double> boundary_value = boundary->boundary_value(is_take);
+				int global_id = boundary->GetDOFInLocalID(0);
+
+				if (global_id < global_SLAE.GetMatrixSize())
+				{
+					auto enter_value = [&newSLAE, &use_id](int value_id, double value) ->void
+					{
+						use_id.push_back(value_id);
+						newSLAE.X[value_id] = value;
+						newSLAE.F[value_id] = value;
+						newSLAE.Diag[value_id] = 1;
+						//Обнуляем строку
+						for (int i = 0; i < newSLAE.A_down[value_id].size(); i++)
+						{
+							newSLAE.A_down[value_id][i] = 0;
+						}
+						for (int i = 0; i < newSLAE.A_up[value_id].size(); i++)
+						{
+							newSLAE.A_up[value_id][i] = 0;
+						}
+						return;
+					};
+
+					if (is_take.x) enter_value(global_id * 3 + 0, boundary_value.x);
+					if (is_take.y) enter_value(global_id * 3 + 1, boundary_value.y);
+					if (is_take.z)
+					{
+						//if (boundary_value.z > 0) boundary_value.z = 1;
+						enter_value(global_id * 3 + 2, boundary_value.z);
+					}
+
+
+				}
+			}
+
+			//
+					//симметризация
+#pragma omp parallel for 
+			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
+			{
+				if (id_row % 100 == 0)
+				{
+					printf("\tcurrent %d/%d\r", id_row, newSLAE.GetMatrixSize());
+				}
+				int iterator_in_boundary = 0;
+				for (int jj = 0; jj < newSLAE.id_column_for_A_up[id_row].size(); jj++)
+				{
+					int id_column = newSLAE.id_column_for_A_up[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
+					{
+						if (use_id[iterator_in_boundary] == id_column)
+						{
+							newSLAE.F[id_row] -= newSLAE.A_up[id_row][jj] * newSLAE.F[id_column];
+							newSLAE.A_up[id_row][jj] = 0;
+
+							break;
+						}
+						if (use_id[iterator_in_boundary] > id_column)
+						{
+							break;
+						}
+					}
+				}
+
+				iterator_in_boundary = 0;
+				for (int jj = 0; jj < newSLAE.id_column_for_A_down[id_row].size(); jj++)
+				{
+					int id_column = newSLAE.id_column_for_A_down[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
+					{
+						if (use_id[iterator_in_boundary] == id_column)
+						{
+							newSLAE.F[id_row] -= newSLAE.A_down[id_row][jj] * newSLAE.F[id_column];
+							newSLAE.A_down[id_row][jj] = 0;
+
+							break;
+						}
+						if (use_id[iterator_in_boundary] > id_column)
+						{
+							break;
+						}
+					}
+				}
+			}
+		}
 
 		clock_t t_before = clock();
 		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
 		double end = omp_get_wtime();
 		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 
-		//SLAE solution
-		if(true){ //via block matrix
+		if (false)
+		{
 			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
-			int MaxSize = global_SLAE.GetMatrixSize()*3;
+			int MaxSize = global_SLAE.GetMatrixSize() / 100;
 			std::vector<Point<double>> best_solution;
 			math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
 			double current_residual = 1, best_residual = 1e+25;
-			int MAX_STEPS = 14;
+			int MAX_STEPS = 15;
 			for (int i = 0; i <= MAX_STEPS; i++)
 			{
 				current_residual = pow(10., -1 * (i + 1));
 				//current_residual /= 2.;
 				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), current_residual);
 				current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, current_residual));
-				//current_residual = abs(global_SLAE.MSG(MaxSize, current_residual));
 				if (current_residual <= MIN_RESIDUAL)
 					break;
 				if (current_residual > best_residual + (1e-10))
 				{
-					//math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
-					//printf_s("//---> BEST residual %.2e\n", best_residual);
-					//break;
+					math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
+					printf_s("//---> BEST residual %.2e\n", best_residual);
+					break;
 				}
 				if (current_residual < best_residual)
 				{
 					best_residual = current_residual;
 					math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
-					printf_s("//---> BEST residual %.2e\n", best_residual);
 				}
 			}
 			printf_s("//---> BEST residual %.2e\n", best_residual);
-			math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
 			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
 		}
-		if(false){ //classic matrix
-			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
-			int MaxSize = global_SLAE.GetMatrixSize();
-			
 
-			CSSD_Matrix<double, double> tmp_matrix;
-			math::MakeCopyMatrix_A_into_B(global_SLAE, tmp_matrix);
+		if (true)
+		{
+			for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
+				newSLAE.X[i] = 1e-5;
+
+			printf("Soluting SLAY... (%d)\n", newSLAE.GetMatrixSize());
+			int MaxSize = newSLAE.GetMatrixSize();
+			MaxSize = MaxSize / 10 < 10 ? 10 : MaxSize / 10;
 			std::vector<double> best_solution;
-			math::MakeCopyVector_A_into_B(tmp_matrix.X, best_solution);
-
+			math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
 			double current_residual = 1, best_residual = 1e+25;
-			int MAX_STEPS = 12;
+			int MAX_STEPS = 4;
+			int ii = 1;
+			CSSD_Matrix<double, double> Precond;
+			Precond.PrecondorSSOR(0.75, newSLAE);
 			for (int i = 0; i <= MAX_STEPS; i++)
 			{
-				current_residual = pow(10., -1 * (i + 1));
-				//current_residual /= 2.;
-				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, tmp_matrix.GetMatrixSize(), current_residual);
-				//current_residual = abs(tmp_matrix.BiCG_Stab(MaxSize, current_residual));
-				current_residual = abs(tmp_matrix.MSG(MaxSize, current_residual));
-				if (current_residual <= MIN_RESIDUAL)
-					break;
-				if (current_residual > best_residual + (1e-10))
+				double needed_residual = pow(10., -1 * (ii + 1));
+				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
+
+				current_residual = abs(newSLAE.MSG_PreconditioningSSOR(newSLAE.GetMatrixSize(), needed_residual, Precond));
+
+				if (current_residual > needed_residual)
+				current_residual = abs(newSLAE.BCG_Stab2(newSLAE.GetMatrixSize(), needed_residual));
+
+				if (current_residual < needed_residual)
 				{
-					math::MakeCopyVector_A_into_B(best_solution, tmp_matrix.X);
-					printf_s("//---> BEST residual %.2e\n", best_residual);
+					i = 0;
+					ii++;
+				}
+				if (current_residual > best_residual * 100)
+				{
+					break;
+				}
+				if (current_residual <= MIN_RESIDUAL)
+				{
+					best_residual = current_residual;
 					break;
 				}
 				if (current_residual < best_residual)
 				{
 					best_residual = current_residual;
-					math::MakeCopyVector_A_into_B(tmp_matrix.X, best_solution);
+					math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
 				}
 			}
+			math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
 			printf_s("//---> BEST residual %.2e\n", best_residual);
-			math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
-			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+			math::MakeCopyVector_A_into_B(newSLAE.X, Solution);
+
+			if (best_residual >= 1)
+			{
+				printf_s("There are problems in the solution\n");
+				int a;
+				scanf_s("%d", &a);
+			}
 		}
+		
 
 		printf("\tcomplit\n\n");
 		t_before = clock();

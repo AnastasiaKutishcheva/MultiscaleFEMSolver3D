@@ -395,6 +395,612 @@ namespace FEM {
 
 		printf_s("complite\n\n");
 	};
+	template <typename Dirichlet, typename Neumann>
+	void FEM_forBaseEliptic(
+		bool is_print_logFile, //input
+		double MIN_RESIDUAL,
+		math::SimpleGrid& geo_grid, //input
+		std::vector<Dirichlet>& first_boundary,//input
+		std::vector<Neumann>& second_boundary,//input
+		std::function< double(int id_elem, Point<double> X) >& koef_forStiffnessMatrix, //input
+		char* result_directory, //output
+		FEM::Grid_forScal& solver_grid, //output
+		std::vector<double>& Solution //output
+	)
+	{
+		FILE* stream;
+		char name_out_log[1000];
+		sprintf_s(name_out_log, sizeof(name_out_log), "%s/log.txt", result_directory);
+		/*if (is_print_logFile == false)
+		{
+			freopen_s(&stream, name_out_log, "w", stdout);
+		}
+		else {
+			fopen_s(&stream, name_out_log, "w");
+		}*/
+
+		clock_t t_after = clock();
+		double start = omp_get_wtime();
+
+		printf("Initialization of grid...\n");
+		solver_grid.Initialization(geo_grid, first_boundary, second_boundary);
+		printf_s("complite                   \n\n");
+
+		CSSD_Matrix<double, double> global_SLAE;
+
+		printf("Creation the SLAE portrait...");
+		solver_grid.CreationPortrait(global_SLAE);
+		printf_s("complite\n\n");
+
+		if (Solution.size() == global_SLAE.X.size())
+		{
+			math::MakeCopyVector_A_into_B(Solution, global_SLAE.X);
+		}
+
+		//{
+		//	char name[1000];
+		//	sprintf_s(name, sizeof(name), "%s/Matrix_portrait.txt", result_directory);
+		//	PrintPortrait(name, global_SLAE);
+		//}
+
+		//second condition
+		/*for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
+		{
+			std::vector<Point<double>> local_vector_SLAE;
+			solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
+			global_SLAE.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
+		};*/
+
+		//SLAE assembling
+		{
+			printf("SLAE assembling...\n");
+			std::vector<DenseMatrix<double, double>> local_SLAE(solver_grid.GetElementsCount());
+#pragma omp parallel for
+			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+			{
+				if (id_elem % 1000 == 0)
+					printf("Solve element[%d]\r", id_elem);
+				auto element = solver_grid.GetElement(id_elem);
+				element->SolveLocalMatrix(local_SLAE[id_elem], koef_forStiffnessMatrix);
+			}
+			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+			{
+				if (id_elem % 1000 == 0)
+					printf("Add the local matrix of element[%d]\r", id_elem);
+				global_SLAE.SummPartOfMatrix(local_SLAE[id_elem], *solver_grid.GetElementDOFs(id_elem));
+
+				//char name[1000];
+				//sprintf_s(name, sizeof(name), "%s/Matrix_%d.txt", problem_directory, id_elem);
+				//PrintMatrix(name, global_SLAE);
+			}
+			printf_s("                                                                                    \r");
+			printf_s("complite\n\n");
+			/*{
+				char name[1000];
+				sprintf_s(name, sizeof(name), "%s/Matrix_full.txt", problem_directory);
+				PrintMatrix(name, global_SLAE);
+			}*/
+
+
+
+		}
+
+		//Boundary condition
+		{
+			//first condition
+			printf("First boundary conditions...\n");
+			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			{
+				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+				int global_id = boundary->GetDOFInLocalID(0);
+				Point<double> x = solver_grid.GetCoordinateViaID(global_id);
+				double boundary_value = boundary->boundary_value(x);
+
+				global_SLAE.X[global_id] = boundary_value;
+				global_SLAE.F[global_id] = boundary_value;
+				global_SLAE.Diag[global_id] = 1.0;
+
+				//обнуляем строку
+				for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+				{
+					global_SLAE.A_down[global_id][j] = 0.0;
+				}
+				for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+				{
+					global_SLAE.A_up[global_id][j] = 0.0;
+				}
+				//обнуляем столбец
+				//for (int i = 0; i < global_SLAE.GetMatrixSize(); i++)
+				//{
+				//	//верхний треугольник
+				//	if (i < global_id)
+				//	{
+				//		for (int jj = 0; jj < global_SLAE.A_up[i].size(); jj++)
+				//		{
+				//			if (global_SLAE.id_column_for_A_up[i][jj] == global_id)
+				//			{
+				//				global_SLAE.F[i] -= global_SLAE.A_up[i][jj] * global_SLAE.F[global_id];
+				//				global_SLAE.A_up[i][jj] = 0;
+				//			}
+				//		}
+				//	}
+				//	//нижний треугольник
+				//	if (i > global_id)
+				//	{
+				//		for (int jj = 0; jj < global_SLAE.A_down[i].size(); jj++)
+				//		{
+				//			if (global_SLAE.id_column_for_A_down[i][jj] == global_id)
+				//			{
+				//				global_SLAE.F[i] -= global_SLAE.A_down[i][jj] * global_SLAE.F[global_id];
+				//				global_SLAE.A_down[i][jj] = 0;
+				//			}
+				//		}
+				//	}
+				//}
+			}
+			//симметризация
+#pragma omp parallel for 
+			for (int id_row = 0; id_row < global_SLAE.GetMatrixSize(); id_row++)
+			{
+				if (id_row % 1000 == 0)
+				{
+					printf("\tsymmetrization: current row %d/%d\r", id_row, global_SLAE.GetMatrixSize());
+
+				}
+				int iterator_in_boundary = 0;
+				for (int jj = 0; jj < global_SLAE.id_column_for_A_up[id_row].size(); jj++)
+				{
+					int id_column = global_SLAE.id_column_for_A_up[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
+					{
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+						{
+							//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+							global_SLAE.F[id_row] -= global_SLAE.A_up[id_row][jj] * global_SLAE.F[id_column];
+							global_SLAE.A_up[id_row][jj] = 0;
+
+							break;
+						}
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+						{
+							//iterator_in_boundary--;
+							break;
+						}
+					}
+				}
+
+				iterator_in_boundary = 0;
+				for (int jj = 0; jj < global_SLAE.id_column_for_A_down[id_row].size(); jj++)
+				{
+					int id_column = global_SLAE.id_column_for_A_down[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
+					{
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+						{
+							//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+							global_SLAE.F[id_row] -= global_SLAE.A_down[id_row][jj] * global_SLAE.F[id_column];
+							global_SLAE.A_down[id_row][jj] = 0;
+
+							break;
+						}
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+						{
+							//iterator_in_boundary--;
+							break;
+						}
+					}
+				}
+			}
+			printf_s("complite\n\n");
+			/*char name[1000];
+			sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary.txt", problem_directory);
+			PrintMatrix(name, global_SLAE);*/
+		}
+
+		clock_t t_before = clock();
+		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
+		double end = omp_get_wtime();
+		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+		//SLAE solution
+		//{
+		//	printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+		//	int MaxSize = global_SLAE.GetMatrixSize();
+		//	int N_matrix = MaxSize / 10000 + 100;
+		//	for (int i = 0; i <= N_matrix; i++)
+		//	{
+		//		printf_s("//---> I = %d/%d (full size %d)\n", i, N_matrix - 1, global_SLAE.GetMatrixSize());
+		//		double residual = global_SLAE.BiCG_Stab(MaxSize /*/ N_matrix*/, MIN_RESIDUAL);
+		//		if (residual <= MIN_RESIDUAL)
+		//			break;
+		//	}
+		//	math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+		//}
+		{
+
+
+			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+			int MaxSize = global_SLAE.GetMatrixSize();
+			std::vector<double> best_solution;
+			math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+			math::MakeCopyVector_A_into_B(global_SLAE.F, global_SLAE.X);
+			double current_residual = 1, best_residual = 1e+25;
+			int MAX_STEPS = 5;
+			int ii = 0;
+			CSSD_Matrix<double, double> Predcondor;
+			Predcondor.PrecondorSSOR(0.75, global_SLAE);
+			for (int i = 0; i <= MAX_STEPS; i++)
+			{
+				double needed_residual = pow(10., -1 * (ii + 1));
+				//current_residual /= 2.;
+				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), needed_residual);
+
+				if (current_residual > needed_residual)
+					current_residual = abs(global_SLAE.MSG_PreconditioningSSOR(MaxSize, needed_residual, Predcondor));
+
+				if (current_residual < needed_residual)
+				{
+					i = 0;
+					ii++;
+					if (current_residual > best_residual + (1e-10))
+					{
+						//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
+						//printf_s("//---> BEST residual %.2e\n", best_residual);
+						break;
+					}
+				}
+				if (current_residual <= MIN_RESIDUAL)
+				{
+					best_residual = current_residual;
+					break;
+				}
+				if (current_residual < best_residual)
+				{
+					best_residual = current_residual;
+					math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+				}
+			}
+			math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
+			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+		}
+
+		printf("\tcomplit\n\n");
+		t_before = clock();
+		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
+		end = omp_get_wtime();
+		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+
+
+		//update grid
+		/*{
+			std::vector<Point<double>> new_x(solver_grid.GetVertexCount());
+			for (int id_vertex = 0; id_vertex < solver_grid.GetVertexCount(); id_vertex++)
+			{
+				new_x[id_vertex] = solver_grid.GetCoordinateViaID(id_vertex) + global_SLAE.X[id_vertex];
+			}
+			solver_grid.UpdateCoordinates(new_x);
+		}*/
+
+
+		printf_s("complite\n\n");
+	};
+
+	template <typename Dirichlet, typename Neumann>
+	void FEM_forBaseEliptic_OrderBF2(
+		bool is_print_logFile, //input
+		double MIN_RESIDUAL,
+		math::SimpleGrid& geo_grid, //input
+		std::vector<Dirichlet>& first_boundary,//input
+		std::vector<Neumann>& second_boundary,//input
+		std::function< double(int id_elem, Point<double> X) >& koef_forStiffnessMatrix,
+		char* result_directory, //output
+		FEM::Grid_forScal_OrderBF2& solver_grid, //output
+		std::vector<double>& Solution //output
+	)
+	{
+		FILE* stream;
+		char name_out_log[1000];
+		sprintf_s(name_out_log, sizeof(name_out_log), "%s/log.txt", result_directory);
+		/*if (is_print_logFile == false)
+		{
+			freopen_s(&stream, name_out_log, "w", stdout);
+		}
+		else {
+			fopen_s(&stream, name_out_log, "w");
+		}*/
+
+		clock_t t_after = clock();
+		double start = omp_get_wtime();
+
+		printf("Initialization of grid...\n");
+		solver_grid.Initialization(geo_grid, first_boundary, second_boundary);
+		printf_s("complite                   \n\n");
+
+		CSSD_Matrix<double, double> global_SLAE;
+
+		printf("Creation the SLAE portrait...");
+		solver_grid.CreationPortrait(global_SLAE);
+		printf_s("complite\n\n");
+
+		if (Solution.size() == global_SLAE.X.size())
+		{
+			math::MakeCopyVector_A_into_B(Solution, global_SLAE.X);
+		}
+
+		//{
+		//	char name[1000];
+		//	sprintf_s(name, sizeof(name), "%s/Matrix_portrait.txt", result_directory);
+		//	PrintPortrait(name, global_SLAE);
+		//}
+
+		//second condition
+		/*for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
+		{
+			std::vector<Point<double>> local_vector_SLAE;
+			solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
+			global_SLAE.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
+		};*/
+
+		//SLAE assembling
+		{
+			printf("SLAE assembling...\n");
+			std::vector<DenseMatrix<double, double>> local_SLAE(solver_grid.GetElementsCount());
+#pragma omp parallel for
+			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+			{
+				if (id_elem % 1000 == 0)
+					printf("Solve element[%d]\r", id_elem);
+				auto element = solver_grid.GetElement(id_elem);
+				element->SolveLocalMatrix(local_SLAE[id_elem], koef_forStiffnessMatrix);
+			}
+			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+			{
+				if (id_elem % 1000 == 0)
+					printf("Add the local matrix of element[%d]\r", id_elem);
+				global_SLAE.SummPartOfMatrix(local_SLAE[id_elem], *solver_grid.GetElementDOFs(id_elem));
+
+				//char name[1000];
+				//sprintf_s(name, sizeof(name), "%s/Matrix_%d.txt", problem_directory, id_elem);
+				//PrintMatrix(name, global_SLAE);
+			}
+			printf_s("                                                                                    \r");
+			printf_s("complite\n\n");
+			/*{
+				char name[1000];
+				sprintf_s(name, sizeof(name), "%s/Matrix_full.txt", problem_directory);
+				PrintMatrix(name, global_SLAE);
+			}*/
+
+
+			std::vector<DenseMatrix<double, double>> v_b1;
+			std::vector<DenseMatrix<double, double>>(v_b1).swap(local_SLAE);
+		}
+
+		//Boundary condition
+		{
+			//first condition
+			printf("First boundary conditions...\n");
+			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			{
+				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+				int global_id = boundary->GetDOFInLocalID(0);
+				Point<double> x = boundary->GetNode(0);
+				double boundary_value = boundary->boundary_value(x);
+
+				global_SLAE.X[global_id] = boundary_value;
+				global_SLAE.F[global_id] = boundary_value;
+				global_SLAE.Diag[global_id] = 1.0;
+
+				//обнуляем строку
+				for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+				{
+					global_SLAE.A_down[global_id][j] = 0.0;
+				}
+				for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+				{
+					global_SLAE.A_up[global_id][j] = 0.0;
+				}
+				//обнуляем столбец
+				//for (int i = 0; i < global_SLAE.GetMatrixSize(); i++)
+				//{
+				//	//верхний треугольник
+				//	if (i < global_id)
+				//	{
+				//		for (int jj = 0; jj < global_SLAE.A_up[i].size(); jj++)
+				//		{
+				//			if (global_SLAE.id_column_for_A_up[i][jj] == global_id)
+				//			{
+				//				global_SLAE.F[i] -= global_SLAE.A_up[i][jj] * global_SLAE.F[global_id];
+				//				global_SLAE.A_up[i][jj] = 0;
+				//			}
+				//		}
+				//	}
+				//	//нижний треугольник
+				//	if (i > global_id)
+				//	{
+				//		for (int jj = 0; jj < global_SLAE.A_down[i].size(); jj++)
+				//		{
+				//			if (global_SLAE.id_column_for_A_down[i][jj] == global_id)
+				//			{
+				//				global_SLAE.F[i] -= global_SLAE.A_down[i][jj] * global_SLAE.F[global_id];
+				//				global_SLAE.A_down[i][jj] = 0;
+				//			}
+				//		}
+				//	}
+				//}
+			}
+			//симметризация
+#pragma omp parallel for 
+			for (int id_row = 0; id_row < global_SLAE.GetMatrixSize(); id_row++)
+			{
+				if (id_row % 1000 == 0)
+				{
+					printf("\tsymmetrization: current row %d/%d\r", id_row, global_SLAE.GetMatrixSize());
+				}
+				int iterator_in_boundary = 0;
+				for (int jj = 0; jj < global_SLAE.id_column_for_A_up[id_row].size(); jj++)
+				{
+					int id_column = global_SLAE.id_column_for_A_up[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
+					{
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+						{
+							//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+							global_SLAE.F[id_row] -= global_SLAE.A_up[id_row][jj] * global_SLAE.F[id_column];
+							global_SLAE.A_up[id_row][jj] = 0;
+
+							break;
+						}
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+						{
+							//iterator_in_boundary--;
+							break;
+						}
+					}
+				}
+
+				iterator_in_boundary = 0;
+				for (int jj = 0; jj < global_SLAE.id_column_for_A_down[id_row].size(); jj++)
+				{
+					int id_column = global_SLAE.id_column_for_A_down[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
+					{
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+						{
+							//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+							global_SLAE.F[id_row] -= global_SLAE.A_down[id_row][jj] * global_SLAE.F[id_column];
+							global_SLAE.A_down[id_row][jj] = 0;
+
+							break;
+						}
+						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+						{
+							//iterator_in_boundary--;
+							break;
+						}
+					}
+				}
+			}
+			printf_s("complite\n\n");
+			/*char name[1000];
+			sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary.txt", problem_directory);
+			PrintMatrix(name, global_SLAE);*/
+		}
+
+		clock_t t_before = clock();
+		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
+		double end = omp_get_wtime();
+		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+		//SLAE solution
+		//{
+		//	printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+		//	int MaxSize = global_SLAE.GetMatrixSize();
+		//	int N_matrix = MaxSize / 10000 + 100;
+		//	for (int i = 0; i <= N_matrix; i++)
+		//	{
+		//		printf_s("//---> I = %d/%d (full size %d)\n", i, N_matrix - 1, global_SLAE.GetMatrixSize());
+		//		double residual = global_SLAE.BiCG_Stab(MaxSize /*/ N_matrix*/, MIN_RESIDUAL);
+		//		if (residual <= MIN_RESIDUAL)
+		//			break;
+		//	}
+		//	math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+		//}
+		{
+
+
+			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+			int MaxSize = global_SLAE.GetMatrixSize();
+			std::vector<double> best_solution;
+			math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+			math::MakeCopyVector_A_into_B(global_SLAE.F, global_SLAE.X);
+			double current_residual = 1, best_residual = 1e+25;
+			int MAX_STEPS = 5;
+			int ii = 0;
+			CSSD_Matrix<double, double> Predcondor; 
+			//Predcondor.PrecondorSSOR_summetric(0.75, global_SLAE);
+			Predcondor.PrecondorSSOR(0.75, global_SLAE);
+			for (int i = 0; i <= MAX_STEPS; i++)
+			{
+				double needed_residual = pow(10., -1 * (ii + 1));
+				//current_residual /= 2.;
+				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), needed_residual);
+				//current_residual = abs(global_SLAE.BCG_Stab2(MaxSize, needed_residual));
+				//current_residual = abs(global_SLAE.MSG(MaxSize, needed_residual));
+
+				//for (int i = 0; i < 5 && current_residual > needed_residual; i++)
+				//{
+				//	current_residual = abs(global_SLAE.BCG_Stab2(MaxSize, needed_residual));
+
+				//	/*current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, needed_residual));
+				//	if (current_residual < needed_residual) break;
+				//	current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, needed_residual));
+				//	if (current_residual < needed_residual) break;
+				//	current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, needed_residual));*/
+				//	
+				//	if (current_residual < needed_residual) break;
+				//	//current_residual = abs(global_SLAE.MSG(1000, needed_residual));
+				//}
+				if(current_residual > needed_residual)
+					current_residual = abs(global_SLAE.MSG_PreconditioningSSOR(MaxSize, needed_residual, Predcondor));
+				//if(current_residual > needed_residual)
+				//	current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, needed_residual));
+
+				if (current_residual < needed_residual)
+				{					
+					i = 0;
+					ii++;
+					if (current_residual > best_residual + (1e-10))
+					{
+						//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
+						//printf_s("//---> BEST residual %.2e\n", best_residual);
+						break;
+					}
+				}
+				if (current_residual <= MIN_RESIDUAL)
+				{
+					best_residual = current_residual;
+					break;
+				}
+				if (current_residual < best_residual)
+				{
+					best_residual = current_residual;
+					math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+				}
+			}
+			math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
+			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+		}
+
+		printf("\tcomplit\n\n");
+		t_before = clock();
+		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
+		end = omp_get_wtime();
+		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+
+
+		//update grid
+		/*{
+			std::vector<Point<double>> new_x(solver_grid.GetVertexCount());
+			for (int id_vertex = 0; id_vertex < solver_grid.GetVertexCount(); id_vertex++)
+			{
+				new_x[id_vertex] = solver_grid.GetCoordinateViaID(id_vertex) + global_SLAE.X[id_vertex];
+			}
+			solver_grid.UpdateCoordinates(new_x);
+		}*/
+
+
+		printf_s("complite\n\n");
+	};
 
 	template <typename Dirichlet, typename Neumann>
 	void FEM_forElasticDeformation(
@@ -411,13 +1017,14 @@ namespace FEM {
 		FILE *stream;
 		char name_out_log[1000];
 		sprintf_s(name_out_log, sizeof(name_out_log), "%s/log.txt", result_directory);
-		if (is_print_logFile == false)
+		/*if (is_print_logFile == false)
 		{
 			freopen_s(&stream, name_out_log, "w", stdout);
 		}
 		else {
 			fopen_s(&stream, name_out_log, "w");
-		}
+		}*/
+		//freopen_s(&stream, name_out_log, "w", stdout);
 
 		clock_t t_after = clock();
 		double start = omp_get_wtime();
@@ -771,6 +1378,7 @@ namespace FEM {
 		//by double matrix;
 		if (true)
 		{
+			std::vector<int> use_id;
 			printf("First boundary conditions...");
 			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
 			{
@@ -782,8 +1390,9 @@ namespace FEM {
 
 				if (global_id < global_SLAE.GetMatrixSize())
 				{
-					auto enter_value = [&newSLAE](int value_id, double value) ->void
+					auto enter_value = [&newSLAE, &use_id](int value_id, double value) ->void
 					{
+						use_id.push_back(value_id);
 						newSLAE.X[value_id] = value;
 						newSLAE.F[value_id] = value;
 						newSLAE.Diag[value_id] = 1;
@@ -797,33 +1406,33 @@ namespace FEM {
 							newSLAE.A_up[value_id][i] = 0;
 						}
 						//обнуляем столбец
-						for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
-						{
-							//верхний треугольник
-							if (i < value_id)
-							{
-								for (int jj = 0; jj < newSLAE.A_up[i].size(); jj++)
-								{
-									if (newSLAE.id_column_for_A_up[i][jj] == value_id)
-									{
-										newSLAE.F[i] -= newSLAE.A_up[i][jj] * newSLAE.F[value_id];
-										newSLAE.A_up[i][jj] = 0;
-									}
-								}
-							}
-							//нижний треугольник
-							if (i > value_id)
-							{
-								for (int jj = 0; jj < newSLAE.A_down[i].size(); jj++)
-								{
-									if (newSLAE.id_column_for_A_down[i][jj] == value_id)
-									{
-										newSLAE.F[i] -= newSLAE.A_down[i][jj] * newSLAE.F[value_id];
-										newSLAE.A_down[i][jj] = 0;
-									}
-								}
-							}
-						}
+						//for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
+						//{
+						//	//верхний треугольник
+						//	if (i < value_id)
+						//	{
+						//		for (int jj = 0; jj < newSLAE.A_up[i].size(); jj++)
+						//		{
+						//			if (newSLAE.id_column_for_A_up[i][jj] == value_id)
+						//			{
+						//				newSLAE.F[i] -= newSLAE.A_up[i][jj] * newSLAE.F[value_id];
+						//				newSLAE.A_up[i][jj] = 0;
+						//			}
+						//		}
+						//	}
+						//	//нижний треугольник
+						//	if (i > value_id)
+						//	{
+						//		for (int jj = 0; jj < newSLAE.A_down[i].size(); jj++)
+						//		{
+						//			if (newSLAE.id_column_for_A_down[i][jj] == value_id)
+						//			{
+						//				newSLAE.F[i] -= newSLAE.A_down[i][jj] * newSLAE.F[value_id];
+						//				newSLAE.A_down[i][jj] = 0;
+						//			}
+						//		}
+						//	}
+						//}
 						return;
 					};
 
@@ -833,6 +1442,64 @@ namespace FEM {
 					{
 						//if (boundary_value.z > 0) boundary_value.z = 1;
 						enter_value(global_id * 3 + 2, boundary_value.z);
+					}
+
+					
+				}
+			}
+
+			//
+					//симметризация
+#pragma omp parallel for 
+			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
+			{
+				if (id_row % 100 == 0)
+				{
+					printf("\tcurrent %d/%d\r", id_row, newSLAE.GetMatrixSize());
+				}
+				int iterator_in_boundary = 0;
+				for (int jj = 0; jj < newSLAE.id_column_for_A_up[id_row].size(); jj++)
+				{
+					int id_column = newSLAE.id_column_for_A_up[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
+					{
+						if (use_id[iterator_in_boundary] == id_column)
+						{
+							//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+							newSLAE.F[id_row] -= newSLAE.A_up[id_row][jj] * newSLAE.F[id_column];
+							newSLAE.A_up[id_row][jj] = 0;
+
+							break;
+						}
+						if (use_id[iterator_in_boundary] > id_column)
+						{
+							//iterator_in_boundary--;
+							break;
+						}
+					}
+				}
+
+				iterator_in_boundary = 0;
+				for (int jj = 0; jj < newSLAE.id_column_for_A_down[id_row].size(); jj++)
+				{
+					int id_column = newSLAE.id_column_for_A_down[id_row][jj];
+					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
+					{
+						if (use_id[iterator_in_boundary] == id_column)
+						{
+							//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+							newSLAE.F[id_row] -= newSLAE.A_down[id_row][jj] * newSLAE.F[id_column];
+							newSLAE.A_down[id_row][jj] = 0;
+
+							break;
+						}
+						if (use_id[iterator_in_boundary] > id_column)
+						{
+							//iterator_in_boundary--;
+							break;
+						}
 					}
 				}
 			}
@@ -874,14 +1541,15 @@ namespace FEM {
 			printf_s("//---> BEST residual %.2e\n", best_residual);
 			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
 		}
+
 		if (true)
 		{
 			//math::MakeCopyVector_A_into_B(newSLAE.F, newSLAE.X);
 			for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
 				newSLAE.X[i] = 1e-5;
 
-			newSLAE.log_out = stream;
-			newSLAE.print_logs = is_print_logFile;
+			//newSLAE.log_out = stream;
+			//newSLAE.print_logs = is_print_logFile;
 
 			printf("Soluting SLAY... (%d)\n", newSLAE.GetMatrixSize());
 			int MaxSize = newSLAE.GetMatrixSize();
@@ -889,29 +1557,29 @@ namespace FEM {
 			std::vector<double> best_solution;
 			math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
 			double current_residual = 1, best_residual = 1e+25;
-			int MAX_STEPS = 15;
+			int MAX_STEPS = 4;
 			int ii = 1;
 			//newSLAE.MakeDivideOnSqrtFormSumm();
+			CSSD_Matrix<double, double> Precond;
+			Precond.PrecondorSSOR(0.75, newSLAE);
 			for (int i = 0; i <= MAX_STEPS; i++)
 			{
 				double needed_residual = pow(10., -1 * (ii + 1));
 				//current_residual /= 2.;
 				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
-				//current_residual = newSLAE.GMRES(5, needed_residual);
 				
-				//current_residual = abs(newSLAE.BiCG_Stab(MaxSize, needed_residual));
-				current_residual = abs(newSLAE.MSG(MaxSize, needed_residual));
-
+				current_residual = abs(newSLAE.MSG_PreconditioningSSOR(newSLAE.GetMatrixSize(), needed_residual, Precond));
+				
 				if (current_residual < needed_residual)
 				{
 					i = 0;
 					ii++;
-					if (current_residual > best_residual + (1e-10))
-					{
-						//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
-						//printf_s("//---> BEST residual %.2e\n", best_residual);
-						break;
-					}
+				}
+				if (current_residual > best_residual*100)
+				{
+					//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
+					//printf_s("//---> BEST residual %.2e\n", best_residual);
+					break;
 				}
 				if (current_residual <= MIN_RESIDUAL)
 				{
@@ -928,37 +1596,7 @@ namespace FEM {
 			printf_s("//---> BEST residual %.2e\n", best_residual);
 			math::MakeCopyVector_A_into_B(newSLAE.X, Solution);
 
-			//if (best_residual >= 1e-8)
-			//{
-			//	MaxSize = 100;
-			//	MaxSize = MaxSize < 10 ? 10 : MaxSize;
-			//	current_residual = 1;
-			//	int MAX_STEPS = 11;
-			//	double needed_residual = best_residual / 10;
-			//	for (int i = 0; i <= MAX_STEPS; i++)
-			//	{
-			//		needed_residual /= 10;
-			//		printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
-			//		current_residual = abs(newSLAE.MSG(MaxSize, needed_residual));
-			//		if (current_residual <= MIN_RESIDUAL)
-			//			break;
-			//		if (current_residual > best_residual + (1e-10))
-			//		{
-			//			//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
-			//			//printf_s("//---> BEST residual %.2e\n", best_residual);
-			//			break;
-			//		}
-			//		if (current_residual < best_residual)
-			//		{
-			//			best_residual = current_residual;
-			//			math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
-			//		}
-			//	}
-			//	math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
-			//	printf_s("//---> BEST residual %.2e\n", best_residual);
-			//	math::MakeCopyVector_A_into_B(newSLAE.X, Solution);
-			//}
-
+			
 			if (best_residual >= 1)
 			{
 				printf_s("There are problems in the solution\n");
@@ -966,6 +1604,8 @@ namespace FEM {
 				scanf_s("%d", &a);
 			}
 		}
+
+		
 
 		printf("\tcomplit\n\n");
 		t_before = clock();
@@ -1390,7 +2030,7 @@ namespace FEM {
 
 				//current_residual = abs(newSLAE.BiCG_Stab(MaxSize, needed_residual));
 				//current_residual = abs(newSLAE.MSG(MaxSize, needed_residual));
-				current_residual = abs(newSLAE.MSG_Preconditioning(MaxSize, needed_residual, Predcondor));
+				current_residual = abs(newSLAE.MSG_PreconditioningSSOR(MaxSize, needed_residual, Predcondor));
 				//current_residual = abs(newSLAE.BiCG_Stab_Preconditioning(MaxSize, needed_residual, Predcondor));
 
 				if (current_residual < needed_residual)

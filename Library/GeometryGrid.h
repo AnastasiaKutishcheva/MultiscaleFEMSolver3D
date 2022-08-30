@@ -16,6 +16,52 @@ private:
 	std::vector <double> X, Y, Z;
 	std::vector<Point<double>> xyz;
 
+	double GetPartVolume(Point<double> min, Point<double> max)
+	{
+		double part_volume = 0;
+		int find_inside_points = 0;
+		Point<double> middle = (max + min) / 2.0;
+
+		if (this->GetElementID(min) >= 0) find_inside_points++;
+		if (this->GetElementID(max) >= 0) find_inside_points++;
+		if (this->GetElementID(Point<double>(max.x, min.y, min.z)) >= 0) find_inside_points++;
+		if (this->GetElementID(Point<double>(min.x, max.y, min.z)) >= 0) find_inside_points++;
+		if (this->GetElementID(Point<double>(max.x, max.y, min.z)) >= 0) find_inside_points++;
+		if (this->GetElementID(Point<double>(min.x, min.y, max.z)) >= 0) find_inside_points++;
+		if (this->GetElementID(Point<double>(max.x, min.y, max.z)) >= 0) find_inside_points++;
+		if (this->GetElementID(Point<double>(min.x, max.y, max.z)) >= 0) find_inside_points++;
+		if (find_inside_points == 0 && this->GetElementID(middle) >= 0) find_inside_points = -1;
+
+		switch (find_inside_points)
+		{
+		case 0: 
+			part_volume = 0; break;
+		case 8: 
+			part_volume = (max.x - min.x) * (max.y - min.y) * (max.z - min.z); break;
+
+		default:
+			if ((max.z - min.z) > (this->Z[this->Z.size() - 1] - this->Z[0]) * 1e-2)
+			{
+				part_volume += GetPartVolume(Point<double>(min.x, min.y, min.z), Point<double>(middle.x, middle.y, middle.z));
+				part_volume += GetPartVolume(Point<double>(middle.x, min.y, min.z), Point<double>(max.x, middle.y, middle.z));
+				part_volume += GetPartVolume(Point<double>(min.x, middle.y, min.z), Point<double>(middle.x, max.y, middle.z));
+				part_volume += GetPartVolume(Point<double>(middle.x, middle.y, min.z), Point<double>(max.x, max.y, middle.z));
+
+				part_volume += GetPartVolume(Point<double>(min.x, min.y, middle.z), Point<double>(middle.x, middle.y, max.z));
+				part_volume += GetPartVolume(Point<double>(middle.x, min.y, middle.z), Point<double>(max.x, middle.y, max.z));
+				part_volume += GetPartVolume(Point<double>(min.x, middle.y, middle.z), Point<double>(middle.x, max.y, max.z));
+				part_volume += GetPartVolume(Point<double>(middle.x, middle.y, middle.z), Point<double>(max.x, max.y, max.z));
+			}
+			else {
+				part_volume = (max.x - min.x) * (max.y - min.y) * (max.z - min.z) * find_inside_points / 8.0;
+				if (find_inside_points == -1) part_volume = 0;
+			}
+			break;
+		}
+
+		return part_volume;
+	}
+
 public:
 	
 	Grid()
@@ -55,6 +101,7 @@ public:
 			{
 				this->elements[i].SetNode(j, &(this->xyz[this->elements[i].GetIdNodes(j)]));
 			}
+			this->elements[i].SolveAlphaMatrix();
 		}
 	}
 	void MoveCoordinates(std::vector<Point<double>>& move_vectors) 
@@ -74,6 +121,14 @@ public:
 			}
 			this->elements[i].SolveAlphaMatrix();
 		}
+	}
+
+	
+	double GetFullVolumeByPart()
+	{
+		if (this->X.size() == 0) CreateXYZline();
+
+		return this->GetPartVolume(this->GetMinCoordinate(), this->GetMaxCoordinate());
 	}
 
 
