@@ -544,15 +544,13 @@ void Solve_ElasticDeformationProblem()
 	clock_t t_after = clock();
 	double start = omp_get_wtime();
 
-
-
 	//char properties_file[1000] = { "E:/+cyl/800el/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/67k/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/638k/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x50x200/param.txt" };
 	//char properties_file[1000] = { "E:/Box/200x200x200/200k_fem/param_for_solver.txt" };
-	char properties_file[1000] = { "D:/Babenko_2022/1cracks/FEM/75/param_for_solver.txt" };
-	//char properties_file[1000] = { "./param_for_solver.txt" };
+	//char properties_file[1000] = { "D:/Babenko_2022/1cracks/FEM/75/param_for_solver.txt" };
+	char properties_file[1000] = { "./param_for_solver.txt" };
 	//char properties_file[1000] = { "base_properties.txt" };
 	printf_s("The properties file contains the information:\n==========================================\n");
 	printf_s("\tDo you need to print to a log file? 0-false/1-true\n");
@@ -581,6 +579,14 @@ void Solve_ElasticDeformationProblem()
 	int _flag;
 	fscanf_s(f_properties, "%d", &_flag);
 	if (_flag == 1) is_print_logFile = true;
+
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<int> val;
+		math::ParserStringToVectorInt(_line, val, " ");
+		math::NUM_THREADS = val[0];
+	}
 
 	math::ReadNonEmptyLine(f_properties, mesh_directory);
 	math::SimpleGrid geo_grid; //input
@@ -957,10 +963,18 @@ void Solve_ElasticDeformationProblem()
 
 		FILE* ftime;
 		char ftime_name[1000];
-		sprintf_s(ftime_name, "%s/time_result.dat", base_result_directory);
+		sprintf_s(ftime_name, "%s/time_result.txt", base_result_directory);
 		fopen_s(&ftime, ftime_name, "w");
 		fprintf_s(ftime, "start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 		fclose(ftime);
+
+		FILE* fres;
+		char fres_name[1000];
+		sprintf_s(fres_name, "%s/U_result.dat", base_result_directory);
+		fopen_s(&fres, fres_name, "w");
+		for (int i = 0; i < Solution.size(); i++)
+			fprintf_s(fres, "%.15e %.15e %.15e\n", Solution[i].x, Solution[i].y, Solution[i].z);
+		fclose(fres);
 
 		//output solution
 		printf_s("Print the mech result into .dat file... ");
@@ -2279,6 +2293,7 @@ void Solve_ElastodynamicsProblem_Explicit()
 		{
 			printf("STIFFNESS assembling...\n");
 			std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE_stiffness(solver_grid.GetElementsCount());
+			omp_set_num_threads(math::NUM_THREADS);
 #pragma omp parallel for
 			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 			{
@@ -2303,6 +2318,7 @@ void Solve_ElastodynamicsProblem_Explicit()
 
 			printf("MASS assembling...\n");
 			std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE_mass(solver_grid.GetElementsCount());
+			omp_set_num_threads(math::NUM_THREADS);
 #pragma omp parallel for
 			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 			{
@@ -4954,6 +4970,7 @@ void Solve_ElastodynamicsProblem_SelfDeform_2Order()
 				std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE_stiffness(solver_grid.GetElementsCount());
 				
 				//#pragma omp parallel num_threads(8)
+				omp_set_num_threads(math::NUM_THREADS);
 #pragma omp parallel for
 				/*for (int i = 0; i < 150; i++)
 				{
@@ -5136,6 +5153,7 @@ void Solve_ElastodynamicsProblem_SelfDeform_2Order()
 
 				}
 				//симметризация
+				omp_set_num_threads(math::NUM_THREADS);
 #pragma omp parallel for 
 				for(int id_row = 0; id_row < StiffnessMatrix_doubleSLAE.GetMatrixSize(); id_row++)
 				{
@@ -8425,6 +8443,56 @@ void TransferSelfIntoMSH()
 	int a;
 	scanf_s("%d", &a);
 }
+void TransferSelfIntoMSH_v2208()
+{
+	//char msh_directory[1000] = { "D:/ForEpov/tensor_rotation/mesh_BoxHomog/new_mesh.msh" };
+	//char self_directory[1000] = { "D:/ForEpov/tensor_rotation/mesh_BoxHomog" };
+	char msh_directory[1000] = { "./new_mesh.msh" };
+	char self_directory[1000] = { "." };
+	std::vector<std::vector<std::vector<int>>> boundary_faces;
+	math::SimpleGrid geo_grid; //input
+	geo_grid.ReadFromNVTR(self_directory, 4);
+
+	char boundary_file[1000];
+	sprintf_s(boundary_file, sizeof(boundary_file), "%s/kraev2_faces.txt", self_directory);
+	FILE* fin;
+	fopen_s(&fin, boundary_file, "r");
+	int N;
+	fscanf_s(fin, "%d", &N);
+	std::vector<std::vector<int>> tmp_vect2;
+	std::vector<int> tmp_vect1;
+	for (int i = 0; i < N; i++)
+	{
+		int parent_elem0, parent_elem1, type;
+		double value;
+		std::vector<int> id_face(3);
+		fscanf_s(fin, "%d %d %d %d %d %d", &parent_elem0, &parent_elem1, &id_face[0], &id_face[1], &id_face[2], &type);
+		parent_elem0--;
+		parent_elem1--;
+		id_face[0]--;
+		id_face[1]--;
+		id_face[2]--;
+		type--;
+
+		while (type >= boundary_faces.size())
+		{
+			boundary_faces.push_back(tmp_vect2);
+		}
+		boundary_faces[type].push_back(tmp_vect1);
+		boundary_faces[type][boundary_faces[type].size() - 1].push_back(parent_elem0 < 0 ? parent_elem1 : parent_elem0);
+		boundary_faces[type][boundary_faces[type].size() - 1].push_back(id_face[0]);
+		boundary_faces[type][boundary_faces[type].size() - 1].push_back(id_face[1]);
+		boundary_faces[type][boundary_faces[type].size() - 1].push_back(id_face[2]);
+	}
+	fclose(fin);
+
+	geo_grid.WriteMSH_v2208(msh_directory, 4, boundary_faces);
+
+	printf_s("Transfer was complited\n");
+
+	int a;
+	scanf_s("%d", &a);
+}
 
 void SLAE_testing()
 {
@@ -8448,7 +8516,7 @@ int main()
 	//SLAE_testing();
 	//Solve_TermalProblem_inTime();
 
-	//Solve_ElasticDeformationProblem();
+	Solve_ElasticDeformationProblem();
 
 	//TransferSelfIntoMSH();
 	//Solve_ElastodynamicsProblem();
@@ -8461,22 +8529,23 @@ int main()
 	//Solve_ViscoElasticDeformationProblem_viaNewton();
 
 	//TransferSelfIntoMSH();
+	//TransferSelfIntoMSH_v2208();
 
-	char base_name[1000] = { "./param_for_solver" };
-	//char base_name[1000] = {"D:/Lab1104_2019/Mesh1/param_for_solver"};
-	char properties_file[1000];
-	int I = 0;
-	sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);
-	FILE* fparam;
-	fopen_s(&fparam, properties_file, "r");
-	while (fparam != NULL)
-	{
-		fclose(fparam);
-		Solve_ElasticDeformationProblem_MSH(properties_file);
-		I++;
-		sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);
-		fopen_s(&fparam, properties_file, "r");
-	}
+	//char base_name[1000] = { "./param_for_solver" };
+	////char base_name[1000] = {"D:/Lab1104_2019/Mesh1/param_for_solver"};
+	//char properties_file[1000];
+	//int I = 0;
+	//sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);
+	//FILE* fparam;
+	//fopen_s(&fparam, properties_file, "r");
+	//while (fparam != NULL)
+	//{
+	//	fclose(fparam);
+	//	Solve_ElasticDeformationProblem_MSH(properties_file);
+	//	I++;
+	//	sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);
+	//	fopen_s(&fparam, properties_file, "r");
+	//}
 
 	int a;
 	scanf_s("%d", &a);

@@ -64,8 +64,6 @@ public:
 		{
 			math::MakeCopyVector_A_into_B(A.id_column_for_A_down[i], this->id_column_for_A_down[i]);
 		}
-
-
 	}
 
 	std::vector<int>* GetIDsColumnsInDownString(int id_string)
@@ -178,6 +176,68 @@ public:
 		math::InitializationVector(this->X, 0);
 		math::InitializationVector(this->F, 0);
 	}
+	bool SetValue(int id_string, int id_column, TForMatrix& val)
+	{
+		if (id_string >= this->GetMatrixSize() || id_column >= this->GetMatrixSize())
+			return false;
+
+		if (id_column == id_string)
+		{
+			this->Diag[id_string] = val;
+			return true;
+		}
+		if (id_column > id_string)
+		{
+			int jj = math::GetPositionInSortVector(this->id_column_for_A_up[id_string], id_column);
+			if (jj >= 0)
+			{
+				this->A_up[id_string][jj] = val;
+				return true;
+			}
+		}
+		if (id_column < id_string)
+		{
+			int jj = math::GetPositionInSortVector(this->id_column_for_A_down[id_string], id_column);
+			if (jj >= 0)
+			{
+				this->A_down[id_string][jj] = val;
+				return true;
+			}
+		}
+
+		return false;
+	}
+	bool GetValue(int id_string, int id_column, TForMatrix& val)
+	{
+		if (id_string >= this->GetMatrixSize() || id_column >= this->GetMatrixSize())
+			return false;
+
+		if (id_column == id_string)
+		{
+			val = this->Diag[id_string];
+			return true;
+		}
+		if (id_column > id_string)
+		{
+			int jj = math::GetPositionInSortVector(this->id_column_for_A_up[id_string], id_column);
+			if (jj >= 0)
+			{
+				val = this->A_up[id_string][jj];
+				return true;
+			}
+		}
+		if (id_column < id_string)
+		{
+			int jj = math::GetPositionInSortVector(this->id_column_for_A_down[id_string], id_column);
+			if (jj >= 0)
+			{
+				val = this->A_down[id_string][jj];
+				return true;
+			}
+		}
+
+		return false;
+	}
 
 	void SummPartOfMatrix(DenseMatrix<TForMatrix, TForVector> &matrix, std::vector<int> &id_row)
 	{
@@ -259,7 +319,7 @@ public:
 		try
 		{
 			if (result.size() != B.size()) result.resize(B.size());
-
+			omp_set_num_threads(math::NUM_THREADS);
 #pragma omp parallel for 
 			for (int i = 0; i < result.size(); i++)
 			{
@@ -576,7 +636,7 @@ public:
 			}
 			if (i % 1000 == 0)
 			{
-				printf_s("\tBSGstab\t>\t%d\t-\t%.5e\n", i, a_norma);
+				printf_s("\tBSGstab\t\t>\t%d\t-\t%.5e\n", i, a_norma);
 			}
 		}
 
@@ -585,7 +645,7 @@ public:
 		for (int i = 0; i < this->GetMatrixSize(); i++)
 			temp += (F[i] - r[i]) * (F[i] - r[i]);
 		double result = sqrt(temp) / f_norma;
-		printf("\tBSGstab\t>\t%d\t-\t%.5e (resolve residual)\n", i, result);
+		printf("\tBSGstab\t\t>\t%d\t-\t%.5e (%.5e resolve residual)\n", i, a_norma, result);
 
 		return result;
 	}
@@ -1043,7 +1103,7 @@ public:
 				printf("r[%d] = INF\n", i);
 				//Sleep(10000);
 			}
-			if (this->F[i] != this->F[i])
+			if (this->F[i] != this->F[i] && this->print_logs)
 			{
 				printf("this->F[%d] = INF\n", i);
 
@@ -1085,10 +1145,24 @@ public:
 
 			//готовим на следующий шаг
 			scal_r_z = math::MakeInnerProduct(r, z);
-			if (!(k % 100) || k == 1)
+			if (this->print_logs && (!(k % 100) || k == 1))
 			{
 				printf("\tMSG_SSOR\t>\t%d\t-\t%.5e\n", k, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)));
 			}
+
+			//if (sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)) <= E)
+			//{
+			//	//считаем настоящую невязку
+			//	this->MultiplicationMatrixVector(this->X, temp_mult);
+			//	double tmp1 = 0, tmp2 = 0;
+			//	for (int i = 0; i < this->X.size(); i++)
+			//	{
+			//		tmp1 += (temp_mult[i] - this->F[i]) * (temp_mult[i] - this->F[i]);
+			//		tmp2 += (this->F[i]) * (this->F[i]);
+			//	}
+			//	if (sqrt(tmp1 / tmp2) <= E) break;
+			//	
+			//}
 		}
 
 		//считаем настоящую невязку
@@ -1099,7 +1173,8 @@ public:
 			tmp1 += (temp_mult[i] - this->F[i]) * (temp_mult[i] - this->F[i]);
 			tmp2 += (this->F[i]) * (this->F[i]);
 		}
-		printf("\tMSG_SSOR\t>\t%d\t-\t%.5e (resolve residual)\n",
+		if(this->print_logs)
+		printf("\tMSG_SSOR\t>\t%d\t-\t%.5e (%.5e resolve residual)\n",
 			k,
 			sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)),
 			sqrt(tmp1 / tmp2));

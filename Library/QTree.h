@@ -8,35 +8,38 @@ private:
 	Point<double> bottom, top;
 	std::vector<int> elems;
 	QTree *next[8];
+	int level;
 
 	void CreateBranch(QTree *box, Grid &grid)
 	{
 		int maxk = (int)log(grid.GetElementsCount())*10;
 		if (maxk == 0) maxk = grid.GetElementsCount();
-		if (box->elems.size() > maxk)
+		if (this->level < 20 && box->elems.size() > maxk)
 		{
 			Point<double> Center = (box->top + box->bottom) / 2;
-			box->next[0] = new QTree(box->bottom, Center, box, grid);
-			box->next[1] = new QTree(Point<double>(Center.x, box->bottom.y, box->bottom.z),
+			int next_level = this->level + 1;
+
+			box->next[0] = new QTree(next_level, box->bottom, Center, box, grid);
+			box->next[1] = new QTree(next_level, Point<double>(Center.x, box->bottom.y, box->bottom.z),
 				Point<double>(box->top.x, Center.y, Center.z),
 				box, grid);
-			box->next[2] = new QTree(Point<double>(box->bottom.x, Center.y, box->bottom.z),
+			box->next[2] = new QTree(next_level, Point<double>(box->bottom.x, Center.y, box->bottom.z),
 				Point<double>(Center.x, box->top.y, Center.z),
 				box, grid);
-			box->next[3] = new QTree(Point<double>(Center.x, Center.y, box->bottom.z),
+			box->next[3] = new QTree(next_level, Point<double>(Center.x, Center.y, box->bottom.z),
 				Point<double>(box->top.x, box->top.y, Center.z),
 				box, grid);
 
-			box->next[4] = new QTree(Point<double>(box->bottom.x, box->bottom.y, Center.z),
+			box->next[4] = new QTree(next_level, Point<double>(box->bottom.x, box->bottom.y, Center.z),
 				Point<double>(Center.x, Center.y, box->top.z),
 				box, grid);
-			box->next[5] = new QTree(Point<double>(Center.x, box->bottom.y, Center.z),
+			box->next[5] = new QTree(next_level, Point<double>(Center.x, box->bottom.y, Center.z),
 				Point<double>(box->top.x, Center.y, box->top.z),
 				box, grid);
-			box->next[6] = new QTree(Point<double>(box->bottom.x, Center.y, Center.z),
+			box->next[6] = new QTree(next_level, Point<double>(box->bottom.x, Center.y, Center.z),
 				Point<double>(Center.x, box->top.y, box->top.z),
 				box, grid);
-			box->next[7] = new QTree(Point<double>(Center.x, Center.y, Center.z),
+			box->next[7] = new QTree(next_level, Point<double>(Center.x, Center.y, Center.z),
 				Point<double>(box->top.x, box->top.y, box->top.z),
 				box, grid);
 
@@ -126,6 +129,7 @@ public:
 	{
 		try
 		{
+			level = 0;
 			for (int i = 0; i < 8; i++) this->next[i] = NULL;
 		}
 		catch (const std::exception&)
@@ -145,6 +149,7 @@ public:
 
 			//this->prev = NULL;
 			for (int i = 0; i < 8; i++) this->next[i] = NULL;
+			this->level = 0;
 
 			CreateBranch(this, grid);
 		}
@@ -153,11 +158,13 @@ public:
 			printf_s("Error: QTree.h/QTree(Grid &grid)\n");
 		}
 	}
-	QTree(Point<double> X1, Point<double> X2, QTree *prev, Grid &grid)
+	QTree(int level, Point<double> X1, Point<double> X2, QTree *prev, Grid &grid)
 	{
 		try {
 			//this->prev = prev;
 			for (int i = 0; i < 8; i++) this->next[i] = NULL;
+			this->level = level;
+
 			if (X1 < X2)
 			{
 				this->bottom = X1;

@@ -306,8 +306,8 @@ namespace MultiXFEM {
 											_dU.val[1][0] = dU.y.x; _dU.val[1][1] = dU.y.y; _dU.val[1][2] = dU.y.z;
 											_dU.val[2][0] = dU.z.x; _dU.val[2][1] = dU.z.y; _dU.val[2][2] = dU.z.z;
 
-											Tensor2Rank3D EPS = grid.GetStressTensorFromSolutionInPoint(curr_el, dU);
-											Tensor2Rank3D SIG = grid.GetStrainTensorFromSolutionInPoint(curr_el, X, EPS);
+											Tensor2Rank3D EPS = grid.GetStrainTensorFromSolutionInPoint(curr_el, dU);
+											Tensor2Rank3D SIG = grid.GetStressTensorFromSolutionInPoint(curr_el, X, EPS);
 
 											Tensor2Rank3D _SIG = System_for_t.transfer_from_OLD_into_NEW(SIG);
 											Tensor2Rank3D _EPS = System_for_t.transfer_from_OLD_into_NEW(SIG);
@@ -1056,8 +1056,8 @@ namespace MultiXFEM {
 											dU_new.y.x = _dU_new.val[1][0]; dU_new.y.y = _dU_new.val[1][1]; dU_new.y.z = _dU_new.val[1][2];
 											dU_new.z.x = _dU_new.val[2][0]; dU_new.z.y = _dU_new.val[2][1]; dU_new.z.z = _dU_new.val[2][2];
 
-											Tensor2Rank3D _EPS = grid.GetStressTensorFromSolutionInPoint(curr_el, dU_new);
-											Tensor2Rank3D _SIG = grid.GetStrainTensorFromSolutionInPoint(curr_el, X, _EPS);
+											Tensor2Rank3D _EPS = grid.GetStrainTensorFromSolutionInPoint(curr_el, dU_new);
+											Tensor2Rank3D _SIG = grid.GetStressTensorFromSolutionInPoint(curr_el, X, _EPS);
 
 											/*Tensor2Rank3D EPS = grid.GetStressTensorFromSolutionInPoint(curr_el, dU);
 											Tensor2Rank3D SIG = grid.GetStrainTensorFromSolutionInPoint(curr_el, X, EPS);
@@ -1926,8 +1926,8 @@ namespace MultiXFEM {
 											//Tensor2Rank3D _EPS = grid.GetStressTensorFromSolutionInPoint(curr_el, dU_new);
 											//Tensor2Rank3D _SIG = grid.GetStrainTensorFromSolutionInPoint(curr_el, X, _EPS);
 
-											Tensor2Rank3D EPS = grid.GetStressTensorFromSolutionInPoint(curr_el, dU);
-											Tensor2Rank3D SIG = grid.GetStrainTensorFromSolutionInPoint(curr_el, X, EPS);
+											Tensor2Rank3D EPS = grid.GetStrainTensorFromSolutionInPoint(curr_el, dU);
+											Tensor2Rank3D SIG = grid.GetStressTensorFromSolutionInPoint(curr_el, X, EPS);
 
 											auto W = [](double ksi, double ksi_max, double ksi_min, int atr) -> double
 											{

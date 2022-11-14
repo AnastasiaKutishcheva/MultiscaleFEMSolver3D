@@ -3395,7 +3395,10 @@ namespace MultiXFEM {
 			}
 			return result;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
+		/// <summary>
+			/// EPSILON
+			/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
 		{
 			Tensor2Rank3D EPS;
 			EPS.val[0][0] = dU.x.x;	EPS.val[0][1] = (dU.y.x + dU.x.y) / 2.;	EPS.val[0][2] = (dU.z.x + dU.x.z) / 2.;
@@ -3404,24 +3407,33 @@ namespace MultiXFEM {
 
 			return EPS;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
 			Point<Point<double>> dU = GetDerevativeFromSolutionInPoint(id_element, X, solution);
 
-			return GetStressTensorFromSolutionInPoint(id_element, dU);
+			return GetStrainTensorFromSolutionInPoint(id_element, dU);
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D &StressTensor)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D& StrainTensor)
 		{
 			Tensor2Rank3D SIG;
 			auto _domain = this->GetDomain(this->GetElement(id_element)->GetIdDomain());
-			SIG = _domain->forMech.solve_SIGMA(StressTensor);
+			SIG = _domain->forMech.solve_SIGMA(StrainTensor);
 
 			return SIG;
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
-			Tensor2Rank3D EPS = GetStressTensorFromSolutionInPoint(id_element, X, solution);
-			return GetStrainTensorFromSolutionInPoint(id_element, X, EPS);
+			Tensor2Rank3D EPS = GetStrainTensorFromSolutionInPoint(id_element, X, solution);
+			return GetStressTensorFromSolutionInPoint(id_element, X, EPS);
 		}
 
 		void printTecPlot3D(/*char *directory,*/ FILE *fdat, std::vector<std::vector<double>> &value, std::vector<std::vector<char>> name_value, char *name_zone)

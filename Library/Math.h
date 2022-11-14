@@ -14,6 +14,8 @@
 
 namespace math
 {
+	int NUM_THREADS = 1;
+
 	double SolveLengthVector(Point<double>  A, Point<double> B);
 	int ParserStringToVectorInt(char* A, std::vector<int>& B, const char* separator);
 	int ParserStringToVectorFloat(char* A, std::vector<float>& B, const char* separator);
@@ -280,8 +282,8 @@ namespace math
 				}
 				fclose(f_nvkat);
 			}
-
 			fclose(f_xyz);
+			fclose(f_param);
 			fclose(f_nvtr);
 			return true;
 		}
@@ -516,7 +518,7 @@ namespace math
 		/// <param name="boundary_faces">в позиции 0 - номер базового тетраэдра!!!</param>
 		void ReadFromMSH_v2208(char* fileMSH, double scale, int vertex_count_in_element, int position_of_material, std::vector<std::vector<std::vector<int>>>& boundary_faces)
 		{
-			char separator[3] = { ' ', '\t', '\0' };
+			char separator[4] = { ' ', '\t', '\n', '\0'};
 			char Str[1000];
 			std::vector<int> Str_int;
 			std::vector<float> Str_float;
@@ -531,6 +533,197 @@ namespace math
 			if (strcmp(Str, "2.2 0 8") || strcmp(Str, "2.2 0 8 1"))
 			{
 				printf_s("\t\t\tERROR! MSH file isn't version 2.2 0 8\n");
+			}
+			if (Str_float.size() == 4)
+			{
+				printf_s("It is modified file\n");
+				modified_file = true;
+			}
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+
+			int num_node;
+			fscanf_s(fin, "%d", &num_node);
+
+			xyz.resize(num_node);
+			for (int i = 0; i < num_node; i++)
+			{
+				int tmp;
+				fscanf_s(fin, "%d %lf %lf %lf", &tmp, &xyz[i].x, &xyz[i].y, &xyz[i].z);
+				xyz[i].x *= scale;
+				xyz[i].y *= scale;
+				xyz[i].z *= scale;
+			}
+
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+
+			int FullNum;
+			fgets(Str, sizeof(Str), fin);
+			ParserStringToVectorInt(Str, Str_int, separator);
+			//fscanf_s(fin, "%d", &FullNum);
+			FullNum = Str_int[0];
+			printf_s("FullNum = %d\n", FullNum);
+
+			//читаем ребра
+			fgets(Str, sizeof(Str), fin);
+			ParserStringToVectorInt(Str, Str_int, separator);
+			int edge_size = 0;
+			while (Str_int.size() == 8 && Str_int[1] == 1)
+			{
+				edge_size++;
+				fgets(Str, sizeof(Str), fin);
+				ParserStringToVectorInt(Str, Str_int, separator);
+			}
+			//читаем границы в элементы-точки
+			//fgets(Str, sizeof(Str), fin);
+			//Parser_String_to_VectInt(Str, Str_int, separator);
+			int face_size = 0;
+			printf_s("Str = %s", Str);
+			printf_s("Str_int = {");
+			for (int i = 0; i < Str_int.size(); i++)
+			{
+				printf_s("%d; ", Str_int[i]);
+			}
+			printf_s("}\n");
+
+			while (Str_int.size() == 8 && Str_int[1] == 2)
+			{
+				face_size++;
+				int offset = 5;
+				std::vector<std::vector<int>> tmp_vect2;
+				std::vector<int> tmp_vect1;
+
+				while (Str_int[3] >= boundary_faces.size())
+				{
+					boundary_faces.push_back(tmp_vect2);
+				}
+				boundary_faces[Str_int[3]].push_back(tmp_vect1);
+
+				if (modified_file)
+				{
+					boundary_faces[Str_int[3]][boundary_faces[Str_int[3]].size() - 1].push_back(Str_int[4] - 1);
+				}
+				else {
+					boundary_faces[Str_int[3]][boundary_faces[Str_int[3]].size() - 1].push_back(-1);
+				}
+
+				for (int ii = 0; ii < 3; ii++)
+					boundary_faces[Str_int[3]][boundary_faces[Str_int[3]].size() - 1].push_back(Str_int[offset + ii] - 1);
+
+				fgets(Str, sizeof(Str), fin);
+				math::ParserStringToVectorInt(Str, Str_int, separator);
+			}
+			for (int i = 0; i < boundary_faces.size(); i++)
+			{
+				printf_s("Boundary[%d] = %d; ", i, boundary_faces[i].size());
+			}
+			printf_s("\n");
+
+			nvtr.reserve(FullNum - edge_size - face_size);
+			nvkat.reserve(FullNum - edge_size - face_size);
+			bool flag = false;
+			{
+				int i = 0;
+				//fgets(Str, sizeof(Str), fin);
+				while (Str_int.size() == 9 /*&& Str_int[0] != FullNum*/)
+				{
+					int offset = 5;
+					//if (Str_int.size() == 8) offset = 5;
+
+					std::vector<int> nums(vertex_count_in_element);
+					for (int j = 0; j < vertex_count_in_element; j++)
+					{
+						nums[j] = Str_int[offset + j] - 1;
+					}
+
+					int id_dom = Str_int[position_of_material - 1];//Str_int[3]-1;
+					nvtr.push_back(nums);
+					nvkat.push_back(id_dom);
+
+					fgets(Str, sizeof(Str), fin);
+					math::ParserStringToVectorInt(Str, Str_int, separator);
+					i++;
+				}
+			};
+			fclose(fin);
+
+			if (!modified_file)
+			{
+				printf_s("\n");
+
+				for (int id_type = 0; id_type < boundary_faces.size(); id_type++)
+				{
+					for (int id_triang = 0; id_triang < boundary_faces[id_type].size(); id_triang++)
+					{
+						printf_s("Create boundary topology %d/%d (triangle %d/%d)\r", id_type, boundary_faces.size(), id_triang, boundary_faces[id_type].size());
+						int test_vertex = -1;
+						int base_elem = -1;
+						for (int id_elem = 0; id_elem < nvtr.size(); id_elem++)
+						{
+							auto _tmp = math::GetConfluence(nvtr[id_elem], boundary_faces[id_type][id_triang]);
+							if (_tmp.size() == boundary_faces[id_type][id_triang].size() - 1)
+							{
+								base_elem = id_elem;
+								break;
+							}
+						}
+						boundary_faces[id_type][id_triang][0] = base_elem;
+					}
+				}
+
+				fopen_s(&fin, fileMSH, "w");
+				fprintf_s(fin, "$MeshFormat\n");
+				fprintf_s(fin, "2.2 0 8 1\n");
+				fprintf_s(fin, "$EndMeshFormat\n");
+				fprintf_s(fin, "$Nodes\n");
+				fprintf_s(fin, "\t%d\n", xyz.size());
+				for (int i = 0; i < xyz.size(); i++)
+				{
+					fprintf_s(fin, "\t\t%d\t%.16lf\t%.16lf\t%.16lf\n", i + 1, xyz[i].x, xyz[i].y, xyz[i].z);
+				}
+				fprintf_s(fin, "$EndNodes\n");
+				fprintf_s(fin, "$Elements\n");
+				fprintf_s(fin, "\t%d\n", FullNum);
+				int i = 0;
+				for (int b = 0; b < boundary_faces.size(); b++)
+					for (int j = 0; j < boundary_faces[b].size(); j++)
+					{
+						fprintf_s(fin, "\t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+							i + 1, 2, 3, b, boundary_faces[b][j][0] + 1,
+							boundary_faces[b][j][1] + 1, boundary_faces[b][j][2] + 1, boundary_faces[b][j][3] + 1);
+						i++;
+					}
+				for (int j = 0; j < nvtr.size(); j++)
+				{
+					fprintf_s(fin, "\t\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+						i + 1, 4, 3, nvkat[j], nvkat[j],
+						nvtr[j][0] + 1, nvtr[j][1] + 1, nvtr[j][2] + 1, nvtr[j][3] + 1);
+					i++;
+				}
+				fprintf_s(fin, "$EndElements\n");
+				fclose(fin);
+
+			}
+		}
+		void ReadFromMSH_FE9(char* fileMSH, double scale, int vertex_count_in_element, int position_of_material, std::vector<std::vector<std::vector<int>>>& boundary_faces)
+		{
+			char separator[4] = { ' ', '\t', '\n', '\0' };
+			char Str[1000];
+			std::vector<int> Str_int;
+			std::vector<float> Str_float;
+			bool modified_file = false;
+
+			FILE* fin;
+
+			fopen_s(&fin, fileMSH, "r");
+			fgets(Str, sizeof(Str), fin);
+			fgets(Str, sizeof(Str), fin);
+			ParserStringToVectorFloat(Str, Str_float, separator);
+			if (strcmp(Str, "2.1 0 8\n") || strcmp(Str, "2.1 0 8 1\n"))
+			{
+				printf_s("\t\t\tERROR! MSH file isn't version 2.1 0 8\n");
 			}
 			if (Str_float.size() == 4)
 			{
@@ -1624,6 +1817,29 @@ namespace math
 
 		return res;
 	}
+	double SolveInverseMatrix3x3(double A[3][3], double res[3][3])
+	{
+		double detA = GetDeterminantForMatrix3x3(A);
+		//printf( "detA = %.5e\n", detA );
+
+		res[0][0] = (A[1][1] * A[2][2] - A[1][2] * A[2][1]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+		res[0][1] = -(A[0][1] * A[2][2] - A[0][2] * A[2][1]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+		res[0][2] = (A[0][1] * A[1][2] - A[0][2] * A[1][1]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+
+		res[1][0] = -(-A[2][0] * A[1][2] + A[1][0] * A[2][2]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+		res[1][1] = (-A[2][0] * A[0][2] + A[0][0] * A[2][2]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+		res[1][2] = -(-A[1][0] * A[0][2] + A[0][0] * A[1][2]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+
+		res[2][0] = (-A[2][0] * A[1][1] + A[1][0] * A[2][1]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+		res[2][1] = -(-A[2][0] * A[0][1] + A[0][0] * A[2][1]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+		res[2][2] = (-A[1][0] * A[0][1] + A[0][0] * A[1][1]) / (A[2][0] * A[0][1] * A[1][2] - A[2][0] * A[0][2] * A[1][1] - A[1][0] * A[0][1] * A[2][2] + A[1][0] * A[0][2] * A[2][1] + A[0][0] * A[1][1] * A[2][2] - A[0][0] * A[1][2] * A[2][1]);
+
+		/*for( int i = 0; i < 3; i++ )
+			for( int j = 0; j < 3; j++ )
+				res[i][j] /= detA;*/
+
+		return detA;
+	}
 	Tensor2Rank3D SolveInverseMatrix3x3(Tensor2Rank3D &A)
 	{
 		double detA = GetDeterminantForMatrix3x3(A);
@@ -1715,6 +1931,84 @@ namespace math
 				for (int jj = 0; jj < 2 - ii; jj++)
 				{
 					B.A_up[id_row_A * 3 + ii][jj] = A.Diag[id_row_A].val[ii][ii+jj+1];
+				}
+				//остальные элементы строк верхнего тругольника
+				for (int id_column_A = 0; id_column_A < A.id_column_for_A_up[id_row_A].size(); id_column_A++)
+				{
+					for (int jj = 0; jj < 3; jj++)
+					{
+						B.A_up[id_row_A * 3 + ii][id_column_A * 3 + jj + 2 - ii] = A.A_up[id_row_A][id_column_A].val[ii][jj];
+					}
+				}
+
+				//остальные элементы строк нижнего тругольника
+				for (int id_column_A = 0; id_column_A < A.id_column_for_A_down[id_row_A].size(); id_column_A++)
+				{
+					for (int jj = 0; jj < 3; jj++)
+					{
+						B.A_down[id_row_A * 3 + ii][id_column_A * 3 + jj] = A.A_down[id_row_A][id_column_A].val[ii][jj];
+					}
+				}
+				//поправка на диагональ
+				for (int jj = 0; jj < ii; jj++)
+				{
+					int id_j = id_column_for_B_down[id_row_A * 3 + ii].size() - ii + jj;
+					id_column_for_B_down[id_row_A * 3 + ii][id_j] = id_row_A * 3 + jj;
+					B.A_down[id_row_A * 3 + ii][id_j] = A.Diag[id_row_A].val[ii][jj];
+				}
+			}
+		}
+	}
+	//Copy ONLY!!! CSSD_matrix<double, double> into CSSD_matrix<double, double>
+	template <typename T1, typename T2>
+	void MakeCopyMatrix_A_into_B_OLD(T1& A, T2& B)
+	{
+		int size_A = A.id_column_for_A_up.size();
+		//crate new columns id
+		std::vector<std::vector<int>> id_column_for_B_up(A.id_column_for_A_up.size() * 3);
+		std::vector<std::vector<int>> id_column_for_B_down(A.id_column_for_A_down.size() * 3);
+		for (int id_row_A = 0; id_row_A < A.id_column_for_A_up.size(); id_row_A++)
+		{
+			//собираем столбцы верхней матрицы
+			for (int id_I_block = 0; id_I_block < 3; id_I_block++)
+			{
+				//недоблок над диагональю
+				for (int id_column_A = 0; id_column_A < A.id_column_for_A_up[id_row_A].size(); id_column_A++)
+					id_column_for_B_up[id_row_A].push_back(A.id_column_for_A_up[id_row_A] + size_A * id_I_block);
+
+				//полные блоки
+				for (int id_J_block = id_I_block+1; id_J_block < 3; id_J_block++)
+				{
+					for (int id_column_A = 0; id_column_A < A.id_column_for_A_down[id_row_A].size(); id_column_A++)
+						id_column_for_B_up[id_row_A].push_back(A.id_column_for_A_down[id_row_A] + size_A * id_I_block + size_A * id_J_block);
+
+					id_column_for_B_up[id_row_A].push_back(A.id_column_for_A_down[id_row_A] + size_A * id_I_block + size_A * id_J_block);
+
+				}
+			}
+		}
+
+		B.Initialization(id_column_for_B_up, id_column_for_B_down);
+
+		for (int id_row_A = 0; id_row_A < A.Diag.size(); id_row_A++)
+		{
+			for (int ii = 0; ii < 3; ii++)
+			{
+				B.Diag[id_row_A * 3 + ii] = A.Diag[id_row_A].val[ii][ii];
+			}
+			B.X[id_row_A * 3 + 0] = A.X[id_row_A].x;
+			B.X[id_row_A * 3 + 1] = A.X[id_row_A].y;
+			B.X[id_row_A * 3 + 2] = A.X[id_row_A].z;
+			B.F[id_row_A * 3 + 0] = A.F[id_row_A].x;
+			B.F[id_row_A * 3 + 1] = A.F[id_row_A].y;
+			B.F[id_row_A * 3 + 2] = A.F[id_row_A].z;
+
+			for (int ii = 0; ii < 3; ii++)
+			{
+				//поправка на диагональ
+				for (int jj = 0; jj < 2 - ii; jj++)
+				{
+					B.A_up[id_row_A * 3 + ii][jj] = A.Diag[id_row_A].val[ii][ii + jj + 1];
 				}
 				//остальные элементы строк верхнего тругольника
 				for (int id_column_A = 0; id_column_A < A.id_column_for_A_up[id_row_A].size(); id_column_A++)
@@ -2394,14 +2688,12 @@ namespace math
 
 		return res;
 	}
-	int ParserStringToVectorInt(char *A, std::vector<int> &B, const char *separator)
+	int ParserStringToVectorDouble(char* A, std::vector<double>& B, const char* separator)
 	{
+		std::vector<double> v_el;
+		std::vector<double>(v_el).swap(B);
+
 		int res = 0;
-
-		std::vector<int> v_el;
-		std::vector<int>(v_el).swap(B);
-
-		//printf_s("%s", separator);
 
 		char b[21];
 		int curr_ib = 0;
@@ -2420,9 +2712,60 @@ namespace math
 
 					if (curr_ib != 0)
 					{
+						B.push_back(atof(b));
+					}
+					curr_ib = 0;
+					break;
+				}
+			}
+
+			if (!flag)
+			{
+				b[curr_ib] = A[ia];
+				curr_ib++;
+
+				if (ia == strlen(A) - 1)
+				{
+					b[curr_ib + 1] = '\0';
+					B.push_back(atof(b));
+				}
+			}
+		}
+
+		return res;
+	}
+	int ParserStringToVectorInt(char *A, std::vector<int> &B, const char *separator)
+	{
+		int res = 0;
+
+		std::vector<int> v_el;
+		std::vector<int>(v_el).swap(B);
+
+		//printf_s("%s", separator);
+
+		
+		int curr_ib = 0;
+		char b[21];
+		//printf_s("%s\r", A);
+		for (int ia = 0; ia < strlen(A); ia++)
+		{
+			res++;
+
+			bool flag = false;
+			int abs = strlen(separator);
+			for (int js = 0; js < strlen(separator); js++)
+			{
+				if (separator[js] == A[ia])
+				{
+					flag = true;
+					b[curr_ib] = '\0';
+
+					if (curr_ib != 0)
+					{
 						B.push_back(atoi(b));
 					}
 					curr_ib = 0;
+					memset(b, 0, sizeof b);
 					break;
 				}
 			}

@@ -337,6 +337,33 @@ public:
 		double mu;
 		double eps;
 		double w;
+		Tensor2Rank3D sigma_tensor;
+
+		void SetSigmaTensor()
+		{
+			sigma_tensor.InitializationAs0();
+			sigma_tensor.val[0][0] = sigma;
+			sigma_tensor.val[1][1] = sigma;
+			sigma_tensor.val[2][2] = sigma;
+		}
+		void SetSigmaTensor(double s_xx, double s_yy, double s_zz)
+		{
+			sigma_tensor.InitializationAs0();
+			sigma_tensor.val[0][0] = s_xx;
+			sigma_tensor.val[1][1] = s_yy;
+			sigma_tensor.val[2][2] = s_zz;
+		}
+		void SetSigmaTensor(std::vector<std::vector<double>> sigma)
+		{
+			sigma_tensor.InitializationAs0();
+			for (int i = 0; i < 3; i++)
+			{
+				for (int j = 0; j < 3; j++)
+				{
+					sigma_tensor.val[i][j] = sigma[i][j];
+				}
+			}
+		}
 	} forElectrical;
 	
 	Domain()

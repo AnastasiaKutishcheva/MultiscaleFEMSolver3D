@@ -257,7 +257,7 @@ public:
 
 		try
 		{
-			if (volume < 0)
+			if (volume < 0 || math::IsEqual(volume, 0.0))
 			{
 				bool is_null_volume_in_grid = false;
 				if (this->elements.size() != 0)

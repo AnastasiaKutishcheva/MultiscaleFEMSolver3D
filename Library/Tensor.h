@@ -280,9 +280,21 @@ public:
 				else
 					printf_s("%.2e ", this->val[i][j]);
 			}
-			printf_s("|");
+			printf_s("|\n");
 		}
-		
+	}
+	
+	void print_xx_yy_zz_xy_xz_yz(char str[1000])
+	{
+		sprintf_s(str, sizeof(str), "| %.2e %.2e %.2e %.2e %.2e %.2e |", this->val[0][0], this->val[1][1], this->val[2][2], this->val[0][1], this->val[0][2], this->val[1][2]);
+	}
+	char* print_xx_yy_zz_xy_xz_yz()
+	{
+		char str[1000];
+
+		sprintf_s(str, sizeof(str), "| %.2e %.2e %.2e %.2e %.2e %.2e |", this->val[0][0], this->val[1][1], this->val[2][2], this->val[0][1], this->val[0][2], this->val[1][2]);
+
+		return str;
 	}
 	void InitializationAs0()
 	{
@@ -311,6 +323,34 @@ public:
 				val[i][j] = v;
 			}
 		}
+	}
+	void SetValueDiag(double v)
+	{
+		for (int i = 0; i < val.size(); i++)
+		{
+			val[i][i] = v;
+		}
+	}
+	void SetValue(std::vector<double> v)
+	{
+		int k = 0;
+		for (int i = 0; i < val.size(); i++)
+		{
+			for (int j = 0; j < val[i].size(); j++)
+			{
+				val[i][j] = v[k];
+				k++;
+			}
+		}
+	}
+	void SetValue_from_xx_yy_zz_xy_xz_yz(std::vector<double> v)
+	{
+		val[0][0] = v[0];
+		val[1][1] = v[1];
+		val[2][2] = v[2];
+		val[0][1] = v[3];
+		val[0][2] = v[4];
+		val[1][2] = v[5];
 	}
 	
 	Tensor2Rank3D T()

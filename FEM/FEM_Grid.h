@@ -150,6 +150,55 @@ namespace FEM{
 				printf_s("Error: XFEM/MultiXFEM_Grid.h/void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D> &local_matix, std::function<std::vector<std::vector<double>>(Point)> &koefD)\n");
 			}
 		}
+		void SolveLocalMatrix(DenseMatrix<double, double>& local_matix,
+			std::function<Tensor2Rank3D(int, Point<double>)>& koefStiffness)
+		{
+			try {
+				local_matix.SetSize(this->GetDOFsCount());
+				int global_id = this->GetSelfGlobalId();
+
+				this->SetIntegrationLaw(1);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+
+					for (int _bf_local_id_J = 0; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					{
+						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
+						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
+
+						Point<double> o = this->GetWeightCentr();
+						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
+
+						std::function<double(Point<double>)> StiffnessMatrix = [&global_id, &_bf_local_id_I, &_bf_local_id_J, &koefStiffness, &D_basis_function_I, &D_basis_function_J]
+						(Point<double> X) -> double
+						{
+							double result;
+							auto S = koefStiffness(global_id, X);
+							Point<double> derevativeBF_I_inX = (*D_basis_function_I)(X);
+							Point<double> derevativeBF_J_inX = (*D_basis_function_J)(X);
+
+							//auto S_gradU = S * derevativeBF_J_inX;
+
+							result = derevativeBF_I_inX * (S * derevativeBF_J_inX);
+							//result = 1.0;
+							return result;
+						};
+
+
+						double V = this->GetVolume();
+						double S = this->SolveIntegral(StiffnessMatrix);
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = S;
+					}
+				}
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: XFEM/MultiXFEM_Grid.h/void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D> &local_matix, std::function<std::vector<std::vector<double>>(Point)> &koefD)\n");
+			}
+		}
 	};
 	class BoundaryVertex_forScal :
 		public geometry::Vertex,
@@ -2269,7 +2318,7 @@ namespace FEM{
 					Point<double> summ_vect;
 					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
 					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
-					for (int _bf_local_id_J = 0; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
 					{
 						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
 						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
@@ -2360,6 +2409,7 @@ namespace FEM{
 						//local_matix.A[_bf_local_id_I][_bf_local_id_J] += this->SolveIntegral(MassMatrix_simple);
 						MassMatrix[_bf_local_id_I][_bf_local_id_J] += this->SolveIntegral(MassMatrix_simple);
 						local_matix.A[_bf_local_id_I][_bf_local_id_J] += MassMatrix[_bf_local_id_I][_bf_local_id_J];
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = local_matix.A[_bf_local_id_I][_bf_local_id_J].T();
 
 						summ += local_matix.A[_bf_local_id_I][_bf_local_id_J];
 					}
@@ -3204,7 +3254,10 @@ namespace FEM{
 			}
 			return result;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, Point<Point<double>> dU)
 		{
 			Tensor2Rank3D EPS;
 			EPS.val[0][0] = dU.x.x;	EPS.val[0][1] = (dU.y.x + dU.x.y) / 2.;	EPS.val[0][2] = (dU.z.x + dU.x.z) / 2.;
@@ -3213,24 +3266,50 @@ namespace FEM{
 
 			return EPS;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
 		{
 			Point<Point<double>> dU = GetDerevativeFromSolutionInPoint(id_element, X, solution);
 
-			return GetStressTensorFromSolutionInPoint(id_element, dU);
+			return GetStrainTensorFromSolutionInPoint(id_element, X, dU);
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D &StressTensor)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D &StrainTensor)
 		{
 			Tensor2Rank3D SIG;
 			auto _domain = this->GetDomain(this->GetElement(id_element)->GetIdDomain());
-			SIG = _domain->forMech.solve_SIGMA(StressTensor);
+			SIG = _domain->forMech.solve_SIGMA(StrainTensor);
 
 			return SIG;
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
 		{
-			Tensor2Rank3D EPS = GetStressTensorFromSolutionInPoint(id_element, X, solution);
-			return GetStrainTensorFromSolutionInPoint(id_element, X, EPS);
+			Tensor2Rank3D EPS = GetStrainTensorFromSolutionInPoint(id_element, X, solution);
+			return GetStressTensorFromSolutionInPoint(id_element, X, EPS);
+		}
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, Point<Point<double>>& dU)
+		{
+			Tensor2Rank3D EPS = GetStrainTensorFromSolutionInPoint(id_element, X, dU);
+			return GetStressTensorFromSolutionInPoint(id_element, X, EPS);
+		}
+		double GetVonMisesStress(Tensor2Rank3D &Strees)
+		{
+			double mises_stress = sqrt((Strees.val[0][0] - Strees.val[1][1]) * (Strees.val[0][0] - Strees.val[1][1])
+				+ (Strees.val[1][1] - Strees.val[2][2]) * (Strees.val[1][1] - Strees.val[2][2])
+				+ (Strees.val[0][0] - Strees.val[2][2]) * (Strees.val[0][0] - Strees.val[2][2])
+				+ 6 * (Strees.val[0][1] * Strees.val[1][0] + Strees.val[0][2] * Strees.val[2][0] + Strees.val[1][2] * Strees.val[2][1]) / 2.0);
+			
+			return mises_stress;
 		}
 
 		void printTecPlot3D(/*char *directory,*/ FILE *fdat, std::vector<std::vector<double>> &value, std::vector<std::vector<char>> name_value, char *name_zone)
@@ -3429,7 +3508,7 @@ namespace FEM{
 
 				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
 				{
-					for (int _bf_local_id_J = 0; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
 					{
 
 						auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
@@ -3484,10 +3563,11 @@ namespace FEM{
 
 						double V = this->GetVolume();
 						local_matix.A[_bf_local_id_I][_bf_local_id_J] = this->SolveIntegral(StiffnessMatrix);
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = local_matix.A[_bf_local_id_I][_bf_local_id_J].T();
 					}
 				}
 
-				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				/*for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
 				{
 					for (int _bf_local_id_J = _bf_local_id_I + 1; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
 					{
@@ -3500,7 +3580,7 @@ namespace FEM{
 							local_matix.A[_bf_local_id_I][_bf_local_id_I].val[i][j] = local_matix.A[_bf_local_id_I][_bf_local_id_I].val[j][i];
 						}
 					}
-				}
+				}*/
 			}
 			catch (const std::exception&)
 			{
@@ -3869,6 +3949,10 @@ namespace FEM{
 						result.x.x = (*element->GetSelfReverseBasis())[0][0] * self_result + (*element->GetSelfReverseBasis())[1][0] * 0.0 + (*element->GetSelfReverseBasis())[2][0] * 0.0;
 						result.x.y = (*element->GetSelfReverseBasis())[0][1] * self_result + (*element->GetSelfReverseBasis())[1][1] * 0.0 + (*element->GetSelfReverseBasis())[2][1] * 0.0;
 						result.x.z = (*element->GetSelfReverseBasis())[0][2] * self_result + (*element->GetSelfReverseBasis())[1][2] * 0.0 + (*element->GetSelfReverseBasis())[2][2] * 0.0;
+						/*result.x.x = (*element->GetSelfReverseBasis())[0][0] * self_result + (*element->GetSelfReverseBasis())[0][1] * 0.0 + (*element->GetSelfReverseBasis())[0][2] * 0.0;
+						result.x.y = (*element->GetSelfReverseBasis())[1][0] * self_result + (*element->GetSelfReverseBasis())[1][1] * 0.0 + (*element->GetSelfReverseBasis())[1][2] * 0.0;
+						result.x.z = (*element->GetSelfReverseBasis())[2][0] * self_result + (*element->GetSelfReverseBasis())[2][1] * 0.0 + (*element->GetSelfReverseBasis())[2][2] * 0.0;*/
+
 
 						result.y.x = result.x.x;
 						result.y.y = result.x.y;
@@ -4051,7 +4135,10 @@ namespace FEM{
 			}
 			return result;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
 		{
 			Tensor2Rank3D EPS;
 			EPS.val[0][0] = dU.x.x;	EPS.val[0][1] = (dU.y.x + dU.x.y) / 2.;	EPS.val[0][2] = (dU.z.x + dU.x.z) / 2.;
@@ -4060,24 +4147,33 @@ namespace FEM{
 
 			return EPS;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
 			Point<Point<double>> dU = GetDerevativeFromSolutionInPoint(id_element, X, solution);
 
-			return GetStressTensorFromSolutionInPoint(id_element, dU);
+			return GetStrainTensorFromSolutionInPoint(id_element, dU);
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D& StressTensor)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D& StrainTensor)
 		{
 			Tensor2Rank3D SIG;
 			auto _domain = this->GetDomain(this->GetElement(id_element)->GetIdDomain());
-			SIG = _domain->forMech.solve_SIGMA(StressTensor);
+			SIG = _domain->forMech.solve_SIGMA(StrainTensor);
 
 			return SIG;
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
-			Tensor2Rank3D EPS = GetStressTensorFromSolutionInPoint(id_element, X, solution);
-			return GetStrainTensorFromSolutionInPoint(id_element, X, EPS);
+			Tensor2Rank3D EPS = GetStrainTensorFromSolutionInPoint(id_element, X, solution);
+			return GetStressTensorFromSolutionInPoint(id_element, X, EPS);
 		}
 
 		void printTecPlot3D(/*char *directory,*/ FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
@@ -4188,7 +4284,7 @@ namespace FEM{
 			try {
 				local_matix.SetSize(this->GetDOFsCount());
 
-				this->SetIntegrationLaw(1);
+				this->SetIntegrationLaw(3);
 
 				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
 				{
@@ -4202,56 +4298,59 @@ namespace FEM{
 
 						Point<double> o = this->GetWeightCentr();
 						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
-						if (true)
+
+						std::function<Tensor2Rank3D(Point<double>)> StiffnessMatrix = [&_bf_local_id_I, &_bf_local_id_J, &koefD, &D_basis_function_I, &D_basis_function_J]
+						(Point<double> X) -> Tensor2Rank3D
 						{
-							std::function<Tensor2Rank3D(Point<double>)> StiffnessMatrix = [&_bf_local_id_I, &_bf_local_id_J, &koefD, &D_basis_function_I, &D_basis_function_J]
-							(Point<double> X) -> Tensor2Rank3D
-							{
-								Tensor2Rank3D result;
+							Tensor2Rank3D result;
 
-								std::vector<std::vector<double>> grad_right, gradT_left;
-								math::ResizeVector(grad_right, 6, 3);
-								math::ResizeVector(gradT_left, 3, 6);
-								auto D = koefD(X);
-								Point<Point<double>> derevativeBF_I_inX = (*D_basis_function_I)(X);
-								Point<Point<double>> derevativeBF_J_inX = (*D_basis_function_J)(X);
+							std::vector<std::vector<double>> grad_right, gradT_left;
+							math::ResizeVector(grad_right, 6, 3);
+							math::ResizeVector(gradT_left, 3, 6);
+							auto D = koefD(X);
+							Point<Point<double>> derevativeBF_I_inX = (*D_basis_function_I)(X);
+							Point<Point<double>> derevativeBF_J_inX = (*D_basis_function_J)(X);
 
-								grad_right[0][0] = derevativeBF_I_inX.x.x;
-								grad_right[1][1] = derevativeBF_I_inX.y.y;
-								grad_right[2][2] = derevativeBF_I_inX.z.z;
-								grad_right[4][2] = derevativeBF_I_inX.z.y;
-								grad_right[4][1] = derevativeBF_I_inX.y.z;
-								grad_right[5][2] = derevativeBF_I_inX.z.x;
-								grad_right[5][0] = derevativeBF_I_inX.x.z;
-								grad_right[3][1] = derevativeBF_I_inX.y.x;
-								grad_right[3][0] = derevativeBF_I_inX.x.y;
+							grad_right[0][0] = derevativeBF_I_inX.x.x;
+							grad_right[1][1] = derevativeBF_I_inX.y.y;
+							grad_right[2][2] = derevativeBF_I_inX.z.z;
 
-								gradT_left[0][0] = derevativeBF_J_inX.x.x;
-								gradT_left[1][1] = derevativeBF_J_inX.y.y;
-								gradT_left[2][2] = derevativeBF_J_inX.z.z;
-								gradT_left[2][4] = derevativeBF_J_inX.z.y;
-								gradT_left[1][4] = derevativeBF_J_inX.y.z;
-								gradT_left[2][5] = derevativeBF_J_inX.z.x;
-								gradT_left[0][5] = derevativeBF_J_inX.x.z;
-								gradT_left[1][3] = derevativeBF_J_inX.y.x;
-								gradT_left[0][3] = derevativeBF_J_inX.x.y;
+							grad_right[3][0] = derevativeBF_I_inX.x.y;
+							grad_right[3][1] = derevativeBF_I_inX.y.x;
+							grad_right[4][2] = derevativeBF_I_inX.z.y;
+							grad_right[4][1] = derevativeBF_I_inX.y.z;
+							grad_right[5][2] = derevativeBF_I_inX.z.x;
+							grad_right[5][0] = derevativeBF_I_inX.x.z;
+							
 
-								std::vector<std::vector<double>> mult_gradT_D;
-								math::MultMatrixMatrix(gradT_left, D, mult_gradT_D);
-								std::vector<std::vector<double>> mult_gradT_D_grad;
-								math::MultMatrixMatrix(mult_gradT_D, grad_right, mult_gradT_D_grad);
+							gradT_left[0][0] = derevativeBF_J_inX.x.x;
+							gradT_left[1][1] = derevativeBF_J_inX.y.y;
+							gradT_left[2][2] = derevativeBF_J_inX.z.z;
 
-								result = mult_gradT_D_grad;
-								//result = 1.0;
-								return result;
-							};
+							gradT_left[2][4] = derevativeBF_J_inX.z.y;
+							gradT_left[1][4] = derevativeBF_J_inX.y.z;
+							gradT_left[2][5] = derevativeBF_J_inX.z.x;
+							gradT_left[0][5] = derevativeBF_J_inX.x.z;
+							gradT_left[1][3] = derevativeBF_J_inX.y.x;
+							gradT_left[0][3] = derevativeBF_J_inX.x.y;
 
-							double V = this->GetVolume();
-							local_matix.A[_bf_local_id_I][_bf_local_id_J] = this->SolveIntegral(StiffnessMatrix);
-						}						
+							std::vector<std::vector<double>> mult_gradT_D;
+							math::MultMatrixMatrix(gradT_left, D, mult_gradT_D);
+							std::vector<std::vector<double>> mult_gradT_D_grad;
+							math::MultMatrixMatrix(mult_gradT_D, grad_right, mult_gradT_D_grad);
+
+							result = mult_gradT_D_grad;
+							//result = 1.0;
+							return result;
+						};
+
+						double V = this->GetVolume();
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = this->SolveIntegral(StiffnessMatrix);
+						//local_matix.A[_bf_local_id_J][_bf_local_id_I] = local_matix.A[_bf_local_id_I][_bf_local_id_J].T();
+					
 					}
 				}
-				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				/*for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
 				{
 					for (int _bf_local_id_J = _bf_local_id_I + 1; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
 					{
@@ -4263,6 +4362,15 @@ namespace FEM{
 						{
 							local_matix.A[_bf_local_id_I][_bf_local_id_I].val[i][j] = local_matix.A[_bf_local_id_I][_bf_local_id_I].val[j][i];
 						}
+					}
+				}*/
+
+				for (int i = 0; i < local_matix.A.size(); i++)
+				{
+					Tensor2Rank3D tmp;
+					for (int j = 0; j < local_matix.A[i].size(); j++)
+					{
+						tmp += local_matix.A[i][j];
 					}
 				}
 			}
@@ -4662,9 +4770,18 @@ namespace FEM{
 						Point<Point<double>> result;
 						element->SolveAlphaMatrix();
 
-						result.x.x = (*element->GetSelfReverseBasis())[0][0] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][0] * element->alpha[_id_vertex][2] + (*element->GetSelfReverseBasis())[2][0] * 0.0;
-						result.x.y = (*element->GetSelfReverseBasis())[0][1] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][1] * element->alpha[_id_vertex][2] + (*element->GetSelfReverseBasis())[2][1] * 0.0;
-						result.x.z = (*element->GetSelfReverseBasis())[0][2] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][2] * element->alpha[_id_vertex][2] + (*element->GetSelfReverseBasis())[2][2] * 0.0;
+						result.x.x = (*element->GetSelfReverseBasis())[0][0] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][0] * element->alpha[_id_vertex][2];
+						result.x.y = (*element->GetSelfReverseBasis())[0][1] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][1] * element->alpha[_id_vertex][2];
+						result.x.z = (*element->GetSelfReverseBasis())[0][2] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][2] * element->alpha[_id_vertex][2];
+
+						/*result.x.x = (*element->GetSelfBasis())[0][0] * element->alpha[_id_vertex][1] + (*element->GetSelfBasis())[0][1] * element->alpha[_id_vertex][2];
+						result.x.y = (*element->GetSelfBasis())[1][0] * element->alpha[_id_vertex][1] + (*element->GetSelfBasis())[1][1] * element->alpha[_id_vertex][2];
+						result.x.z = (*element->GetSelfBasis())[2][0] * element->alpha[_id_vertex][1] + (*element->GetSelfBasis())[2][1] * element->alpha[_id_vertex][2];*/
+
+						/*result.x.x = (*element->GetSelfReverseBasis())[0][0] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[0][1] * element->alpha[_id_vertex][2] + (*element->GetSelfReverseBasis())[0][2] * 0.0;
+						result.x.y = (*element->GetSelfReverseBasis())[1][0] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[1][1] * element->alpha[_id_vertex][2] + (*element->GetSelfReverseBasis())[1][2] * 0.0;
+						result.x.z = (*element->GetSelfReverseBasis())[2][0] * element->alpha[_id_vertex][1] + (*element->GetSelfReverseBasis())[2][1] * element->alpha[_id_vertex][2] + (*element->GetSelfReverseBasis())[2][2] * 0.0;*/
+
 
 						result.y.x = result.x.x;
 						result.y.y = result.x.y;
@@ -4847,7 +4964,10 @@ namespace FEM{
 			}
 			return result;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
 		{
 			Tensor2Rank3D EPS;
 			EPS.val[0][0] = dU.x.x;	EPS.val[0][1] = (dU.y.x + dU.x.y) / 2.;	EPS.val[0][2] = (dU.z.x + dU.x.z) / 2.;
@@ -4856,24 +4976,33 @@ namespace FEM{
 
 			return EPS;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
 			Point<Point<double>> dU = GetDerevativeFromSolutionInPoint(id_element, X, solution);
 
-			return GetStressTensorFromSolutionInPoint(id_element, dU);
+			return GetStrainTensorFromSolutionInPoint(id_element, dU);
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D& StressTensor)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D& StrainTensor)
 		{
 			Tensor2Rank3D SIG;
 			auto _domain = this->GetDomain(this->GetElement(id_element)->GetIdDomain());
-			SIG = _domain->forMech.solve_SIGMA(StressTensor);
+			SIG = _domain->forMech.solve_SIGMA(StrainTensor);
 
 			return SIG;
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
-			Tensor2Rank3D EPS = GetStressTensorFromSolutionInPoint(id_element, X, solution);
-			return GetStrainTensorFromSolutionInPoint(id_element, X, EPS);
+			Tensor2Rank3D EPS = GetStrainTensorFromSolutionInPoint(id_element, X, solution);
+			return GetStressTensorFromSolutionInPoint(id_element, X, EPS);
 		}
 
 		void printTecPlot3D(/*char *directory,*/ FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
@@ -6396,7 +6525,10 @@ namespace FEM{
 			}
 			return result;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<Point<double>> dU)
 		{
 			Tensor2Rank3D EPS;
 			EPS.val[0][0] = dU.x.x;	EPS.val[0][1] = (dU.y.x + dU.x.y) / 2.;	EPS.val[0][2] = (dU.z.x + dU.x.z) / 2.;
@@ -6405,24 +6537,33 @@ namespace FEM{
 
 			return EPS;
 		}
-		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
+		/// <summary>
+		/// EPSILON
+		/// </summary>
+		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
 			Point<Point<double>> dU = GetDerevativeFromSolutionInPoint(id_element, X, solution);
 
-			return GetStressTensorFromSolutionInPoint(id_element, dU);
+			return GetStrainTensorFromSolutionInPoint(id_element, dU);
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D &StressTensor)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, Tensor2Rank3D& StrainTensor)
 		{
 			Tensor2Rank3D SIG;
 			auto _domain = this->GetDomain(this->GetElement(id_element)->GetIdDomain());
-			SIG = _domain->forMech.solve_SIGMA(StressTensor);
+			SIG = _domain->forMech.solve_SIGMA(StrainTensor);
 
 			return SIG;
 		}
-		Tensor2Rank3D GetStrainTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>> &solution)
+		/// <summary>
+		/// SIGMA
+		/// </summary>
+		Tensor2Rank3D GetStressTensorFromSolutionInPoint(int id_element, Point<double> X, std::vector<Point<double>>& solution)
 		{
-			Tensor2Rank3D EPS = GetStressTensorFromSolutionInPoint(id_element, X, solution);
-			return GetStrainTensorFromSolutionInPoint(id_element, X, EPS);
+			Tensor2Rank3D EPS = GetStrainTensorFromSolutionInPoint(id_element, X, solution);
+			return GetStressTensorFromSolutionInPoint(id_element, X, EPS);
 		}
 
 		void printTecPlot3D(/*char *directory,*/ FILE* fdat, std::vector<std::vector<double>>& value, std::vector<std::vector<char>> name_value, char* name_zone)
