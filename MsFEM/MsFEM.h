@@ -956,6 +956,7 @@ namespace MsFEM {
 			if (true)
 			{
 				printf("Soluting SLAY... (%d)\n", newSLAE.GetMatrixSize());
+				newSLAE.print_logs = true;
 				int MaxSize = newSLAE.GetMatrixSize();
 				MaxSize = MaxSize / 10 < 1000 ? 1000 : MaxSize / 10;
 				std::vector<double> best_solution;

@@ -1262,7 +1262,7 @@ void ElasticDeformation_MsFEM_Poly(char properties_file[1000])
 			clock_t t_before = clock();
 			double end = omp_get_wtime();
 
-			printf_s("Compare solution with FEM... %s", TEST_mesh_dir);
+			printf_s("Compare solution with FEM...\n\t%s\n", TEST_mesh_dir);
 			Point<double> result;
 			if (true)
 			{
@@ -1284,14 +1284,15 @@ void ElasticDeformation_MsFEM_Poly(char properties_file[1000])
 				FILE* fin_fem;
 				char name_in_fem[1000];
 				sprintf_s(name_in_fem, "%s/Solution.txt", TEST_mesh_dir);
-				fopen_s(&fin_fem, name_in_fem, "w");
+				fopen_s(&fin_fem, name_in_fem, "r");
 				for (int i = 0; i < FEM_mesh.GetDOFsCount(); i++)
 				{
 					fscanf_s(fin_fem, "%lf %lf %lf", &FEM_solution[i].x, &FEM_solution[i].y, &FEM_solution[i].z);
 				}
 				fclose(fin_fem);
 
-
+				std::vector<Point<double>> result_parallel(solver_grid.GetElementsCount());
+#pragma omp parallel for
 				for (int id_macro = 0; id_macro < solver_grid.GetElementsCount(); id_macro++)
 				{
 					std::function<Point<double>(Point<double>)> integral_value = [&id_macro, &Solution, &solver_grid, &FEM_mesh, &FEM_solution](Point<double> X) -> Point<double>
@@ -1309,8 +1310,45 @@ void ElasticDeformation_MsFEM_Poly(char properties_file[1000])
 
 						return Point<double>(result.x * result.x, result.y * result.y, result.z * result.z);
 					};
-					solver_grid.GetElement(id_macro)->SetIntegrationLaw(4);
-					result += solver_grid.GetElement(id_macro)->SolveIntegral(integral_value);
+					//solver_grid.GetElement(id_macro)->SetIntegrationLaw(4);
+					//result += solver_grid.GetElement(id_macro)->SolveIntegral(integral_value);
+
+					auto macro_el = solver_grid.GetElement(id_macro);
+					for (int id_micro = 0; id_micro < macro_el->self_grid.GetElementsCount(); id_micro++)
+					{
+						auto micro_el = macro_el->self_grid.GetElement(id_micro);
+						micro_el->SetIntegrationLaw(1);
+
+						std::function<Point<double>(Point<double>)> integral_value_viaMicro = [&macro_el, &id_micro, &Solution, &solver_grid, &FEM_mesh, &FEM_solution](Point<double> X) -> Point<double>
+						{
+							Point<double> U_FEHMM;
+							for (int id_bf = 0; id_bf < macro_el->GetDOFsCount(); id_bf++)
+							{
+								Point<double> bf_X = (*macro_el->GetBasisFunctionInLocalID_viaMicro(id_bf))(X, id_micro);
+								U_FEHMM.x += bf_X.x * Solution[macro_el->GetIdNode(id_bf)].x;
+								U_FEHMM.y += bf_X.y * Solution[macro_el->GetIdNode(id_bf)].y;
+								U_FEHMM.z += bf_X.z * Solution[macro_el->GetIdNode(id_bf)].z;
+							}
+
+							double len;
+							int id_fem = FEM_mesh.GetNearestElementID(X, len);
+							Point<double> U_FEM = FEM_mesh.GetSolutionInPoint(id_fem, X, FEM_solution);
+
+							Point<double> result;
+							result.x = (U_FEHMM.x - U_FEM.x) / U_FEM.x;
+							result.y = (U_FEHMM.y - U_FEM.y) / U_FEM.y;
+							result.z = (U_FEHMM.z - U_FEM.z) / U_FEM.z;
+
+							return Point<double>(result.x * result.x, result.y * result.y, result.z * result.z);
+						};
+						
+						result_parallel[id_macro] += micro_el->SolveIntegral(integral_value_viaMicro);
+					}
+				}
+
+				for (int i = 0; i < result_parallel.size(); i++)
+				{
+					result += result_parallel[i];
 				}
 				result.x = sqrt(result.x);
 				result.y = sqrt(result.y);
@@ -1320,17 +1358,21 @@ void ElasticDeformation_MsFEM_Poly(char properties_file[1000])
 			FILE* fout_U;
 			char name_out_time[1000];
 			sprintf_s(name_out_time, "%s/Time_result.txt", base_result_directory);
-			fopen_s(&fout_U, name_out_time, "w");
+			fopen_s(&fout_U, name_out_time, "a");
+			fprintf_s(fout_U, "---------------------------------------------\n");
 			fprintf_s(fout_U, "TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
 			fprintf_s(fout_U, "start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 			fprintf_s(fout_U, "Error(X) %.5e\n", result.x);
 			fprintf_s(fout_U, "Error(Y) %.5e\n", result.y);
 			fprintf_s(fout_U, "Error(Z) %.5e\n", result.z);
 			fprintf_s(fout_U, "Error(middle) %.5e\n", (result.x + result.y + result.z) / 3.0);
+			fprintf_s(fout_U, "---------------------------------------------\n\n");
+
 			fclose(fout_U);
 
 			//output solution
 			printf_s("Print the mech result into .dat file... ");
+#pragma omp parallel for
 			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 			{
 				auto macro_element = solver_grid.GetElement(id_elem);
@@ -1570,10 +1612,10 @@ void ElasticDeformation_MsFEM_Poly(char properties_file[1000])
 			//Output into plane 
 			if (true)
 			{
-				math::SimpleGrid geo_grid;
+				math::SimpleGrid geo_grid_plane;
 				char mesh_plane_directory[1000];
 				sprintf_s(mesh_plane_directory, sizeof(mesh_plane_directory), "%s/Mesh_for_print_XOZ.dat", mesh_directory);
-				geo_grid.ReadFromSalomeDat(mesh_plane_directory, 2);
+				geo_grid_plane.ReadFromSalomeDat(mesh_plane_directory, 2);
 
 				FILE* fout_tech;
 				char name_u_tech[5000];
@@ -1598,81 +1640,89 @@ void ElasticDeformation_MsFEM_Poly(char properties_file[1000])
 					}
 				}
 				std::vector<std::vector<double>> value(3 * 2);
-				value[0].resize(geo_grid.nvtr.size());
-				value[1].resize(geo_grid.nvtr.size());
-				value[2].resize(geo_grid.nvtr.size());
-				value[3].resize(geo_grid.nvtr.size());
-				value[4].resize(geo_grid.nvtr.size());
-				value[5].resize(geo_grid.nvtr.size());
+				value[0].resize(geo_grid_plane.nvtr.size());
+				value[1].resize(geo_grid_plane.nvtr.size());
+				value[2].resize(geo_grid_plane.nvtr.size());
+				value[3].resize(geo_grid_plane.nvtr.size());
+				value[4].resize(geo_grid_plane.nvtr.size());
+				value[5].resize(geo_grid_plane.nvtr.size());
 				double sigma_inv_max = 0;
 				int elem_sigma_max = 0;
-				for (int id_elem = 0; id_elem < geo_grid.nvtr.size(); id_elem++)
+				for (int id_elem = 0; id_elem < geo_grid_plane.nvtr.size(); id_elem++)
 				{
 					Point<double> Target_point;
-					for (int i = 0; i < geo_grid.nvtr[id_elem].size(); i++)
+					for (int i = 0; i < geo_grid_plane.nvtr[id_elem].size(); i++)
 					{
-						Target_point += geo_grid.xyz[geo_grid.nvtr[id_elem][i]];
+						Target_point += geo_grid_plane.xyz[geo_grid_plane.nvtr[id_elem][i]];
 					}
-					Target_point /= geo_grid.nvtr[id_elem].size();
+					Target_point /= geo_grid_plane.nvtr[id_elem].size();
 
 					Point<double> U_macro;
 					Point<Point<double>> dU_macro;
 
 					double len;
 					int id_macro = solver_grid.GetNearestElementID(Target_point, len);
-					auto macro_element = solver_grid.GetElement(id_macro);
-					int id_micro = macro_element->self_grid.GetNearestElementID(Target_point, len);
-
-					std::vector<Point<double>> bf_macro(macro_element->GetDOFsCount());
-					std::vector<Point<Point<double>>> d_bf_macro(macro_element->GetDOFsCount());
-					for (int j = 0; j < bf_macro.size(); j++)
+					if (id_macro >= 0)
 					{
-						bf_macro[j] = macro_element->self_grid.GetSolutionInPoint(id_micro, Target_point, macro_element->self_basis_functions[j]);
-						d_bf_macro[j] = macro_element->self_grid.GetDerevativeFromSolutionInPoint(id_micro, Target_point, macro_element->self_basis_functions[j]);
+						auto macro_element = solver_grid.GetElement(id_macro);
+						int id_micro = macro_element->self_grid.GetNearestElementID(Target_point, len);
 
-						Point<double> val;
-						val.x = Solution[macro_element->GetDOFInLocalID(j)].x;
-						val.y = Solution[macro_element->GetDOFInLocalID(j)].y;
-						val.z = Solution[macro_element->GetDOFInLocalID(j)].z;
+						printf_s("id_elem[%d] - Macro[%d] - Micro[%d]                                        \r", id_elem, id_macro, id_micro);
 
-						U_macro.x += bf_macro[j].x * val.x;
-						U_macro.y += bf_macro[j].y * val.y;
-						U_macro.z += bf_macro[j].z * val.z;
+						if (id_micro >= 0)
+						{
+							std::vector<Point<double>> bf_macro(macro_element->GetDOFsCount());
+							std::vector<Point<Point<double>>> d_bf_macro(macro_element->GetDOFsCount());
+							for (int j = 0; j < bf_macro.size(); j++)
+							{
+								bf_macro[j] = macro_element->self_grid.GetSolutionInPoint(id_micro, Target_point, macro_element->self_basis_functions[j]);
+								d_bf_macro[j] = macro_element->self_grid.GetDerevativeFromSolutionInPoint(id_micro, Target_point, macro_element->self_basis_functions[j]);
 
-						dU_macro.x += d_bf_macro[j].x * val.x;
-						dU_macro.y += d_bf_macro[j].y * val.y;
-						dU_macro.z += d_bf_macro[j].z * val.z;
+								Point<double> val;
+								val.x = Solution[macro_element->GetDOFInLocalID(j)].x;
+								val.y = Solution[macro_element->GetDOFInLocalID(j)].y;
+								val.z = Solution[macro_element->GetDOFInLocalID(j)].z;
+
+								U_macro.x += bf_macro[j].x * val.x;
+								U_macro.y += bf_macro[j].y * val.y;
+								U_macro.z += bf_macro[j].z * val.z;
+
+								dU_macro.x += d_bf_macro[j].x * val.x;
+								dU_macro.y += d_bf_macro[j].y * val.y;
+								dU_macro.z += d_bf_macro[j].z * val.z;
+							}
+
+
+							double eps[6] = { dU_macro.x.x, dU_macro.y.y, dU_macro.z.z, dU_macro.x.y + dU_macro.y.x, dU_macro.y.z + dU_macro.z.y, dU_macro.x.z + dU_macro.z.x };
+							double v = solver_grid.GetDomain(macro_element->self_grid.GetElement(id_micro)->GetIdDomain())->forMech.v;
+							double E = solver_grid.GetDomain(macro_element->self_grid.GetElement(id_micro)->GetIdDomain())->forMech.GetE(0);
+							double a = v / (1 - v);
+							double b = (1 - 2 * v) / (2 * (1 - v));
+							//double k = E * (1 - v) / ((1 + v)*(1 - v));
+							double k = E * (1. - v) / (1. + v) / (1. - 2. * v);
+							double sigma[6] = { k * (eps[0] * 1 + eps[1] * a + eps[2] * a), k * (eps[0] * a + eps[1] * 1 + eps[2] * a), k * (eps[0] * a + eps[1] * a + eps[2] * 1),
+								k * (2 * eps[3] * b), k * (2 * eps[4] * b), k * (2 * eps[5] * b) };
+							double sigma_inv = sqrt((sigma[0] - sigma[1]) * (sigma[0] - sigma[1]) + (sigma[1] - sigma[2]) * (sigma[1] - sigma[2]) + (sigma[2] - sigma[0]) * (sigma[2] - sigma[0]) +
+								6 * (sigma[3] * sigma[3] + sigma[4] * sigma[4] + sigma[5] * sigma[5])) / sqrt(2.);
+							double eps_inv = sqrt((eps[0] - eps[1]) * (eps[0] - eps[1]) + (eps[1] - eps[2]) * (eps[1] - eps[2]) + (eps[2] - eps[0]) * (eps[2] - eps[0]) +
+								3 * (eps[3] * eps[3] + eps[4] * eps[4] + eps[5] * eps[5]) / 2.) * sqrt(2.) / 3;
+
+							value[0][id_elem] = macro_element->self_grid.GetElement(id_micro)->GetIdDomain();
+							value[1][id_elem] = sigma[1];
+							value[2][id_elem] = sigma[2];
+
+							value[3][id_elem] = eps[0];
+							value[4][id_elem] = eps[1];
+							value[5][id_elem] = eps[2];
+
+							value[3][id_elem] = U_macro.x;
+							value[4][id_elem] = U_macro.y;
+							value[5][id_elem] = U_macro.z;
+						}
 					}
-
-
-					double eps[6] = { dU_macro.x.x, dU_macro.y.y, dU_macro.z.z, dU_macro.x.y + dU_macro.y.x, dU_macro.y.z + dU_macro.z.y, dU_macro.x.z + dU_macro.z.x };
-					double v = solver_grid.GetDomain(macro_element->self_grid.GetElement(id_micro)->GetIdDomain())->forMech.v;
-					double E = solver_grid.GetDomain(macro_element->self_grid.GetElement(id_micro)->GetIdDomain())->forMech.GetE(0);
-					double a = v / (1 - v);
-					double b = (1 - 2 * v) / (2 * (1 - v));
-					//double k = E * (1 - v) / ((1 + v)*(1 - v));
-					double k = E * (1. - v) / (1. + v) / (1. - 2. * v);
-					double sigma[6] = { k * (eps[0] * 1 + eps[1] * a + eps[2] * a), k * (eps[0] * a + eps[1] * 1 + eps[2] * a), k * (eps[0] * a + eps[1] * a + eps[2] * 1),
-						k * (2 * eps[3] * b), k * (2 * eps[4] * b), k * (2 * eps[5] * b) };
-					double sigma_inv = sqrt((sigma[0] - sigma[1]) * (sigma[0] - sigma[1]) + (sigma[1] - sigma[2]) * (sigma[1] - sigma[2]) + (sigma[2] - sigma[0]) * (sigma[2] - sigma[0]) +
-						6 * (sigma[3] * sigma[3] + sigma[4] * sigma[4] + sigma[5] * sigma[5])) / sqrt(2.);
-					double eps_inv = sqrt((eps[0] - eps[1]) * (eps[0] - eps[1]) + (eps[1] - eps[2]) * (eps[1] - eps[2]) + (eps[2] - eps[0]) * (eps[2] - eps[0]) +
-						3 * (eps[3] * eps[3] + eps[4] * eps[4] + eps[5] * eps[5]) / 2.) * sqrt(2.) / 3;
-
-					value[0][id_elem] = macro_element->self_grid.GetElement(id_micro)->GetIdDomain();
-					value[1][id_elem] = sigma[1];
-					value[2][id_elem] = sigma[2];
-
-					value[3][id_elem] = eps[0];
-					value[4][id_elem] = eps[1];
-					value[5][id_elem] = eps[2];
-
-					value[3][id_elem] = U_macro.x;
-					value[4][id_elem] = U_macro.y;
-					value[5][id_elem] = U_macro.z;
 				}
 
-				geo_grid.printTecPlot3D(fout_tech, value, name_value, name_in_file);
+				geo_grid_plane.printTecPlot3D(fout_tech, value, name_value, name_in_file);
 
 				FILE* fout_U;
 				char name_out_U[1000];
@@ -1741,7 +1791,7 @@ void main()
 
 
 	char base_name[1000] = {"./param_for_solver"};
-	//char base_name[1000] = {"D:/P-ref_MsFEM/Sample_for_convergense/PolyMesh_1Order_new/H1_h1/param_for_solver"};
+	//char base_name[1000] = {"D:/KutischevaAY/MechTesting(FE-HMM)/Cub_1x1x1/Mesh_H26_h0.03/param_for_solver"};
 	char properties_file[1000];
 	FILE* fparam;
 	for(int I = 0; I < 100; I++)

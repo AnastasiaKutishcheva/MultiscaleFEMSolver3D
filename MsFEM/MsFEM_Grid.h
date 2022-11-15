@@ -3801,6 +3801,8 @@ namespace MsFEM {
 		public topology::Polyhedron<topology::lower::Polygon, topology::upper::EmptyElement>,
 		public functional::Shape<int, Point<double>>
 	{
+	private:
+		std::vector<std::function<Point<double>(Point<double> X, int id_micro)>> basis_function_viaMicro;
 	public:
 		math::SimpleGrid SubGrid_for_integration;
 		math::SimpleGrid SubGrid_for_integr_byTriangles;
@@ -3812,6 +3814,23 @@ namespace MsFEM {
 
 		FiniteElement_forMech_Poly_Order1() { return; };
 		~FiniteElement_forMech_Poly_Order1() { return; };
+
+		std::function<Point<double>(Point<double> X, int id_micro)> * GetBasisFunctionInLocalID_viaMicro(int local_id)
+		{
+			try {
+				return &basis_function_viaMicro[local_id];
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: Library/FunctionalShape.h/std::function<TypeBF(Point)>* GetBasisFunctionInLocalID(int local_id)\n");
+			}
+		}
+		void SetBasisFunctionInLocalID_viaMicro(int local_id, std::function<Point<double>(Point<double> X, int id_micro)> bf)
+		{
+			if (this->basis_function_viaMicro.size() == 0) this->basis_function_viaMicro.resize(this->GetDOFsCount());
+
+			this->basis_function_viaMicro[local_id] = bf;
+		}
 
 		void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D, Point<double>>& local_matix, std::function<std::vector<std::vector<double>>(Point<double>)>& koefD)
 		{
@@ -5614,7 +5633,8 @@ namespace MsFEM {
 
 							result.y = result.z;
 							result.x = result.z;*/
-
+							/*result.y = result.z;
+							result.x = result.z;*/
 							return result;
 						};
 						std::function< Point<Point<double>>(Point<double> X)> derivative_bf = [element, _id_bf](Point<double> X) -> Point<Point<double>>
@@ -5675,9 +5695,9 @@ namespace MsFEM {
 								resy = f(X.y, element->GetNode(7).y, element->GetNode(0).y)[numeration[1][_id_bf]];
 								resz = df(X.z, element->GetNode(7).z, element->GetNode(0).z)[numeration[2][_id_bf]];
 								result.z.z = resx * resy * resz;
-							}
+							}*/
 
-							result.y = result.z;
+							/*result.y = result.z;
 							result.x = result.z;*/
 
 							return result;
@@ -5686,6 +5706,18 @@ namespace MsFEM {
 						int target_global_id;
 						target_global_id = element->GetIdNode(_id_bf);
 						element->SetDOF(_id_bf, target_global_id, bf, derivative_bf);
+
+						std::function< Point<double>(Point<double> X, int id_micro)> bf_viaMicro = [_id_bf, element](Point<double> X, int id_micro) -> Point<double>
+						{
+							Point<double> result;
+
+							result = element->self_grid.GetSolutionInPoint(id_micro, X, element->self_basis_functions[_id_bf]);
+
+							/*result.y = result.z;
+							result.x = result.z;*/
+							return result;
+						};
+						element->SetBasisFunctionInLocalID_viaMicro(_id_bf, bf_viaMicro);
 					}
 				}
 
