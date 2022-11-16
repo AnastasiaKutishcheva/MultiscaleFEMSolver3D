@@ -3090,7 +3090,7 @@ namespace FEM {
 		}
 		if (true)
 		{
-			SLAE_in_old_DOF.print_logs = true;
+			//SLAE_in_old_DOF.print_logs = true;
 			printf("Soluting SLAY... (%d)\n", SLAE_in_old_DOF.GetMatrixSize());
 			int MaxSize = SLAE_in_old_DOF.GetMatrixSize();
 			MaxSize = MaxSize / 10 < 1000 ? 1000 : MaxSize / 10;
@@ -4468,7 +4468,7 @@ namespace FEM {
 		}
 		if (true)
 		{
-			SLAE_in_old_DOF.print_logs = true;
+			//SLAE_in_old_DOF.print_logs = true;
 			printf("Soluting SLAY... (%d)\n", SLAE_in_old_DOF.GetMatrixSize());
 			int MaxSize = SLAE_in_old_DOF.GetMatrixSize();
 			MaxSize = MaxSize / 10 < 1000 ? 1000 : MaxSize / 10;
