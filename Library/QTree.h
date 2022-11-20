@@ -109,15 +109,18 @@ private:
 				}
 			}
 			double discrepancy = 0;
-			grid.GetElement(box->elems[0])->IsContainThePoint(A, len);
-			num = box->elems[0];
-			for (int i = 1; i < box->elems.size(); i++)
+			if (box->elems.size() != 0)
 			{
-				grid.GetElement(box->elems[i])->IsContainThePoint(A, discrepancy);
-				if (discrepancy < len)
+				grid.GetElement(box->elems[0])->IsContainThePoint(A, len);
+				num = box->elems[0];
+				for (int i = 1; i < box->elems.size(); i++)
 				{
-					len = discrepancy;
-					num = box->elems[i];
+					grid.GetElement(box->elems[i])->IsContainThePoint(A, discrepancy);
+					if (discrepancy < len)
+					{
+						len = discrepancy;
+						num = box->elems[i];
+					}
 				}
 			}
 			return false; // так и не нашли элемента

@@ -4796,7 +4796,7 @@ namespace MsFEM {
 				//create basis functions
 				this->SetDOFsCount((int)this->vertexes.size());
 				omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 				for (int id_element = 0; id_element < this->GetElementsCount(); id_element++)
 				{
 					printf_s("Create basis functions for element[%d]                  \r", id_element);

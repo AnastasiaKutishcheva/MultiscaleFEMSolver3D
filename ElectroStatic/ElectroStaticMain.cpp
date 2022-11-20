@@ -211,7 +211,7 @@ double EffectiveResistance_ByСrossSection(int typeXYZ, int typeGEO, double delta
 	double S = 0; //площадь сечения
 	I_in_sections.resize(SectionPositions.size());
 	omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 	for (int id_section = 0; id_section < SectionPositions.size(); id_section++)
 	{
 		//подвижка сетки на нужную позицию
@@ -254,27 +254,29 @@ double EffectiveResistance_ByСrossSection(int typeXYZ, int typeGEO, double delta
 
 			std::function<double(Point<double>)> I = [&solver_grid, &U, typeXYZ](Point<double> x) ->double
 			{
-				double res;
+				double res = 0;
 
 				double len;
 				int id_3Delem = solver_grid.GetNearestElementID(x, len);
 
-				Point<double> E = solver_grid.GetDerevativeFromSolutionInPoint(id_3Delem, x, U);
-				double sigma = solver_grid.GetDomain(solver_grid.GetElement(id_3Delem)->GetIdDomain())->forElectrical.sigma;
-				
-				switch (typeXYZ)
+				if (id_3Delem >= 0)
 				{
-				case 0:
-					res = sigma * E.x;
-					break;
-				case 1:
-					res = sigma * E.y;
-					break;
-				case 2:
-					res = sigma * E.z;
-					break;
-				}
+					Point<double> E = solver_grid.GetDerevativeFromSolutionInPoint(id_3Delem, x, U);
+					double sigma = solver_grid.GetDomain(solver_grid.GetElement(id_3Delem)->GetIdDomain())->forElectrical.sigma;
 
+					switch (typeXYZ)
+					{
+					case 0:
+						res = sigma * E.x;
+						break;
+					case 1:
+						res = sigma * E.y;
+						break;
+					case 2:
+						res = sigma * E.z;
+						break;
+					}
+				}
 				return res;
 			};
 
@@ -406,7 +408,7 @@ double EffectiveResistance_ByСrossSection_forTensorDomains(int typeXYZ, int type
 	double S = 0; //площадь сечения
 	I_in_sections.resize(SectionPositions.size());
 	omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 	for (int id_section = 0; id_section < SectionPositions.size(); id_section++)
 	{
 		//подвижка сетки на нужную позицию
@@ -2482,8 +2484,8 @@ void main()
 	rectangle.printTecPlot3D(fout_tech, name_in_file);*/
 
 	//char base_name[1000] = { "D:/testing23062022/testing19102022/param_for_solver" };
-	//char base_name[1000] = { "./param_for_solver" };
-	char base_name[1000] = {"D:/testing23062022/ForDaria/param_for_solver"};
+	char base_name[1000] = { "./param_for_solver" };
+	//char base_name[1000] = {"D:/testing23062022/sand_init/param_for_solver"};
 	char properties_file[1000];
 	int I = 0;
 	sprintf_s(properties_file, sizeof(properties_file), "%s_%d.txt", base_name, I);

@@ -456,6 +456,7 @@ namespace math
 
 				for (int id_type = 0; id_type < boundary_faces.size(); id_type++)
 				{
+#pragma omp parallel for schedule(dynamic)
 					for (int id_triang = 0; id_triang < boundary_faces[id_type].size(); id_triang++)
 					{
 						printf_s("Create boundary topology %d/%d (triangle %d/%d)\r", id_type, boundary_faces.size(), id_triang, boundary_faces[id_type].size());
@@ -655,6 +656,7 @@ namespace math
 
 				for (int id_type = 0; id_type < boundary_faces.size(); id_type++)
 				{
+#pragma omp parallel for schedule(dynamic)
 					for (int id_triang = 0; id_triang < boundary_faces[id_type].size(); id_triang++)
 					{
 						printf_s("Create boundary topology %d/%d (triangle %d/%d)\r", id_type, boundary_faces.size(), id_triang, boundary_faces[id_type].size());

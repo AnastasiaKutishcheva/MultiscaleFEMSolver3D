@@ -620,7 +620,7 @@ namespace MsFEM {
 				std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE(solver_grid.GetElementsCount());
 
 				omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 				for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 				{
 					if (id_elem % 1 == 0)
@@ -897,7 +897,7 @@ namespace MsFEM {
 
 				//симметризация
 				omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 				for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
 				{
 					if (id_row % 1000 == 0)

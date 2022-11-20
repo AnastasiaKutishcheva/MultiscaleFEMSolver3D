@@ -2946,7 +2946,7 @@ namespace MultiXFEM {
 
 			//
 					//симметризация
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
 			{
 				if (id_row % 100 == 0)

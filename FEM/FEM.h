@@ -428,252 +428,276 @@ namespace FEM {
 
 		CSSD_Matrix<double, double> global_SLAE;
 
-		printf("Creation the SLAE portrait...");
-		solver_grid.CreationPortrait(global_SLAE);
-		printf_s("complite\n\n");
-
-		if (Solution.size() == global_SLAE.X.size())
+		FILE* fsolution;
+		char name_solution[1000];
+		sprintf_s(name_solution, "%s/Solution.txt", result_directory);
+		fopen_s(&fsolution, name_solution, "r");
+		if (fsolution != NULL)
 		{
-			math::MakeCopyVector_A_into_B(Solution, global_SLAE.X);
+			printf_s("\n============READ current solution===========\n");
+			Solution.resize(solver_grid.GetDOFsCount());
+			for (int id_dof = 0; id_dof < Solution.size(); id_dof++)
+			{
+				fscanf_s(fsolution, "%lf", &Solution[id_dof]);
+			}
+			fclose(fsolution);
 		}
+		else {
 
-		//{
-		//	char name[1000];
-		//	sprintf_s(name, sizeof(name), "%s/Matrix_portrait.txt", result_directory);
-		//	PrintPortrait(name, global_SLAE);
-		//}
-
-		//second condition
-		/*for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
-		{
-			std::vector<Point<double>> local_vector_SLAE;
-			solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
-			global_SLAE.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
-		};*/
-
-		//SLAE assembling
-		{
-			printf("SLAE assembling...\n");
-			std::vector<DenseMatrix<double, double>> local_SLAE(solver_grid.GetElementsCount());
-			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
-			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
-			{
-				if (id_elem % 1000 == 0)
-					printf("Solve element[%d]\r", id_elem);
-				auto element = solver_grid.GetElement(id_elem);
-				element->SolveLocalMatrix(local_SLAE[id_elem], koef_forStiffnessMatrix);
-			}
-			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
-			{
-				if (id_elem % 1000 == 0)
-					printf("Add the local matrix of element[%d]\r", id_elem);
-				global_SLAE.SummPartOfMatrix(local_SLAE[id_elem], *solver_grid.GetElementDOFs(id_elem));
-
-				//char name[1000];
-				//sprintf_s(name, sizeof(name), "%s/Matrix_%d.txt", problem_directory, id_elem);
-				//PrintMatrix(name, global_SLAE);
-			}
-			printf_s("                                                                                    \r");
+			printf("Creation the SLAE portrait...");
+			solver_grid.CreationPortrait(global_SLAE);
 			printf_s("complite\n\n");
-			/*{
-				char name[1000];
-				sprintf_s(name, sizeof(name), "%s/Matrix_full.txt", problem_directory);
-				PrintMatrix(name, global_SLAE);
-			}*/
 
-
-
-		}
-
-		//Boundary condition
-		{
-			//first condition
-			printf("First boundary conditions...\n");
-			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			if (Solution.size() == global_SLAE.X.size())
 			{
-				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
-
-				int global_id = boundary->GetDOFInLocalID(0);
-				Point<double> x = solver_grid.GetCoordinateViaID(global_id);
-				double boundary_value = boundary->boundary_value(x);
-
-				global_SLAE.X[global_id] = boundary_value;
-				global_SLAE.F[global_id] = boundary_value;
-				global_SLAE.Diag[global_id] = 1.0;
-
-				//обнуляем строку
-				for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
-				{
-					global_SLAE.A_down[global_id][j] = 0.0;
-				}
-				for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
-				{
-					global_SLAE.A_up[global_id][j] = 0.0;
-				}
-				//обнуляем столбец
-				//for (int i = 0; i < global_SLAE.GetMatrixSize(); i++)
-				//{
-				//	//верхний треугольник
-				//	if (i < global_id)
-				//	{
-				//		for (int jj = 0; jj < global_SLAE.A_up[i].size(); jj++)
-				//		{
-				//			if (global_SLAE.id_column_for_A_up[i][jj] == global_id)
-				//			{
-				//				global_SLAE.F[i] -= global_SLAE.A_up[i][jj] * global_SLAE.F[global_id];
-				//				global_SLAE.A_up[i][jj] = 0;
-				//			}
-				//		}
-				//	}
-				//	//нижний треугольник
-				//	if (i > global_id)
-				//	{
-				//		for (int jj = 0; jj < global_SLAE.A_down[i].size(); jj++)
-				//		{
-				//			if (global_SLAE.id_column_for_A_down[i][jj] == global_id)
-				//			{
-				//				global_SLAE.F[i] -= global_SLAE.A_down[i][jj] * global_SLAE.F[global_id];
-				//				global_SLAE.A_down[i][jj] = 0;
-				//			}
-				//		}
-				//	}
-				//}
+				math::MakeCopyVector_A_into_B(Solution, global_SLAE.X);
 			}
-			//симметризация
-			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
-			for (int id_row = 0; id_row < global_SLAE.GetMatrixSize(); id_row++)
+
+			//{
+			//	char name[1000];
+			//	sprintf_s(name, sizeof(name), "%s/Matrix_portrait.txt", result_directory);
+			//	PrintPortrait(name, global_SLAE);
+			//}
+
+			//second condition
+			/*for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
 			{
-				if (id_row % 1000 == 0)
-				{
-					printf("\tsymmetrization: current row %d/%d\r", id_row, global_SLAE.GetMatrixSize());
+				std::vector<Point<double>> local_vector_SLAE;
+				solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
+				global_SLAE.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
+			};*/
 
+			//SLAE assembling
+			{
+				printf("SLAE assembling...\n");
+				std::vector<DenseMatrix<double, double>> local_SLAE(solver_grid.GetElementsCount());
+				omp_set_num_threads(math::NUM_THREADS);
+#pragma omp parallel for schedule(dynamic)
+				for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+				{
+					if (id_elem % 1000 == 0)
+						printf("Solve element[%d]\r", id_elem);
+					auto element = solver_grid.GetElement(id_elem);
+					element->SolveLocalMatrix(local_SLAE[id_elem], koef_forStiffnessMatrix);
 				}
-				int iterator_in_boundary = 0;
-				for (int jj = 0; jj < global_SLAE.id_column_for_A_up[id_row].size(); jj++)
+				for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 				{
-					int id_column = global_SLAE.id_column_for_A_up[id_row][jj];
-					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
+					if (id_elem % 1000 == 0)
+						printf("Add the local matrix of element[%d]\r", id_elem);
+					global_SLAE.SummPartOfMatrix(local_SLAE[id_elem], *solver_grid.GetElementDOFs(id_elem));
+
+					//char name[1000];
+					//sprintf_s(name, sizeof(name), "%s/Matrix_%d.txt", problem_directory, id_elem);
+					//PrintMatrix(name, global_SLAE);
+				}
+				printf_s("                                                                                    \r");
+				printf_s("complite\n\n");
+				/*{
+					char name[1000];
+					sprintf_s(name, sizeof(name), "%s/Matrix_full.txt", problem_directory);
+					PrintMatrix(name, global_SLAE);
+				}*/
+
+
+
+			}
+
+			//Boundary condition
+			{
+				//first condition
+				printf("First boundary conditions...\n");
+				for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+				{
+					auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+					int global_id = boundary->GetDOFInLocalID(0);
+					Point<double> x = solver_grid.GetCoordinateViaID(global_id);
+					double boundary_value = boundary->boundary_value(x);
+
+					global_SLAE.X[global_id] = boundary_value;
+					global_SLAE.F[global_id] = boundary_value;
+					global_SLAE.Diag[global_id] = 1.0;
+
+					//обнуляем строку
+					for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
 					{
-						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+						global_SLAE.A_down[global_id][j] = 0.0;
+					}
+					for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+					{
+						global_SLAE.A_up[global_id][j] = 0.0;
+					}
+					//обнуляем столбец
+					//for (int i = 0; i < global_SLAE.GetMatrixSize(); i++)
+					//{
+					//	//верхний треугольник
+					//	if (i < global_id)
+					//	{
+					//		for (int jj = 0; jj < global_SLAE.A_up[i].size(); jj++)
+					//		{
+					//			if (global_SLAE.id_column_for_A_up[i][jj] == global_id)
+					//			{
+					//				global_SLAE.F[i] -= global_SLAE.A_up[i][jj] * global_SLAE.F[global_id];
+					//				global_SLAE.A_up[i][jj] = 0;
+					//			}
+					//		}
+					//	}
+					//	//нижний треугольник
+					//	if (i > global_id)
+					//	{
+					//		for (int jj = 0; jj < global_SLAE.A_down[i].size(); jj++)
+					//		{
+					//			if (global_SLAE.id_column_for_A_down[i][jj] == global_id)
+					//			{
+					//				global_SLAE.F[i] -= global_SLAE.A_down[i][jj] * global_SLAE.F[global_id];
+					//				global_SLAE.A_down[i][jj] = 0;
+					//			}
+					//		}
+					//	}
+					//}
+				}
+				//симметризация
+				omp_set_num_threads(math::NUM_THREADS);
+#pragma omp parallel for schedule(dynamic) 
+				for (int id_row = 0; id_row < global_SLAE.GetMatrixSize(); id_row++)
+				{
+					if (id_row % 1000 == 0)
+					{
+						printf("\tsymmetrization: current row %d/%d\r", id_row, global_SLAE.GetMatrixSize());
+
+					}
+					int iterator_in_boundary = 0;
+					for (int jj = 0; jj < global_SLAE.id_column_for_A_up[id_row].size(); jj++)
+					{
+						int id_column = global_SLAE.id_column_for_A_up[id_row][jj];
+						for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
 						{
-							//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+							if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+							{
+								//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
 
-							global_SLAE.F[id_row] -= global_SLAE.A_up[id_row][jj] * global_SLAE.F[id_column];
-							global_SLAE.A_up[id_row][jj] = 0;
+								global_SLAE.F[id_row] -= global_SLAE.A_up[id_row][jj] * global_SLAE.F[id_column];
+								global_SLAE.A_up[id_row][jj] = 0;
 
-							break;
+								break;
+							}
+							if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+							{
+								//iterator_in_boundary--;
+								break;
+							}
 						}
-						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+					}
+
+					iterator_in_boundary = 0;
+					for (int jj = 0; jj < global_SLAE.id_column_for_A_down[id_row].size(); jj++)
+					{
+						int id_column = global_SLAE.id_column_for_A_down[id_row][jj];
+						for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
 						{
-							//iterator_in_boundary--;
-							break;
+							if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+							{
+								//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+								global_SLAE.F[id_row] -= global_SLAE.A_down[id_row][jj] * global_SLAE.F[id_column];
+								global_SLAE.A_down[id_row][jj] = 0;
+
+								break;
+							}
+							if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
+							{
+								//iterator_in_boundary--;
+								break;
+							}
 						}
 					}
 				}
+				printf_s("complite\n\n");
+				/*char name[1000];
+				sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary.txt", problem_directory);
+				PrintMatrix(name, global_SLAE);*/
+			}
 
-				iterator_in_boundary = 0;
-				for (int jj = 0; jj < global_SLAE.id_column_for_A_down[id_row].size(); jj++)
+			clock_t t_before = clock();
+			printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
+			double end = omp_get_wtime();
+			printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
+
+			//SLAE solution
+			{
+
+				global_SLAE.print_logs = true;
+				printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+				printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+				int MaxSize = global_SLAE.GetMatrixSize();
+				std::vector<double> best_solution;
+				math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+				math::MakeCopyVector_A_into_B(global_SLAE.F, global_SLAE.X);
+				double current_residual = 1, best_residual = 1e+25;
+				int MAX_STEPS = 5;
+				int ii = 0;
+				CSSD_Matrix<double, double> Predcondor;
+				Predcondor.PrecondorSSOR(0.75, global_SLAE);
+				for (int i = 0; i <= MAX_STEPS; i++)
 				{
-					int id_column = global_SLAE.id_column_for_A_down[id_row][jj];
-					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < solver_grid.boundary_vertexes.size(); iterator_in_boundary++)
+					double needed_residual = pow(10., -1 * (ii + 1));
+					//current_residual /= 2.;
+					printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), needed_residual);
+
+					if (current_residual > needed_residual)
+						current_residual = abs(global_SLAE.MSG_PreconditioningSSOR(MaxSize, needed_residual, Predcondor));
+
+					if (current_residual < needed_residual)
 					{
-						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) == id_column)
+						i = 0;
+						ii++;
+						if (current_residual > best_residual + (1e-10))
 						{
-							//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
-
-							global_SLAE.F[id_row] -= global_SLAE.A_down[id_row][jj] * global_SLAE.F[id_column];
-							global_SLAE.A_down[id_row][jj] = 0;
-
-							break;
-						}
-						if (solver_grid.boundary_vertexes[iterator_in_boundary].GetDOFInLocalID(0) > id_column)
-						{
-							//iterator_in_boundary--;
+							//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
+							//printf_s("//---> BEST residual %.2e\n", best_residual);
 							break;
 						}
 					}
-				}
-			}
-			printf_s("complite\n\n");
-			/*char name[1000];
-			sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary.txt", problem_directory);
-			PrintMatrix(name, global_SLAE);*/
-		}
-
-		clock_t t_before = clock();
-		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
-		double end = omp_get_wtime();
-		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
-
-		//SLAE solution
-		//{
-		//	printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
-		//	int MaxSize = global_SLAE.GetMatrixSize();
-		//	int N_matrix = MaxSize / 10000 + 100;
-		//	for (int i = 0; i <= N_matrix; i++)
-		//	{
-		//		printf_s("//---> I = %d/%d (full size %d)\n", i, N_matrix - 1, global_SLAE.GetMatrixSize());
-		//		double residual = global_SLAE.BiCG_Stab(MaxSize /*/ N_matrix*/, MIN_RESIDUAL);
-		//		if (residual <= MIN_RESIDUAL)
-		//			break;
-		//	}
-		//	math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
-		//}
-		{
-
-			global_SLAE.print_logs = true;
-			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
-			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
-			int MaxSize = global_SLAE.GetMatrixSize();
-			std::vector<double> best_solution;
-			math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
-			math::MakeCopyVector_A_into_B(global_SLAE.F, global_SLAE.X);
-			double current_residual = 1, best_residual = 1e+25;
-			int MAX_STEPS = 5;
-			int ii = 0;
-			CSSD_Matrix<double, double> Predcondor;
-			Predcondor.PrecondorSSOR(0.75, global_SLAE);
-			for (int i = 0; i <= MAX_STEPS; i++)
-			{
-				double needed_residual = pow(10., -1 * (ii + 1));
-				//current_residual /= 2.;
-				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), needed_residual);
-
-				if (current_residual > needed_residual)
-					current_residual = abs(global_SLAE.MSG_PreconditioningSSOR(MaxSize, needed_residual, Predcondor));
-
-				if (current_residual < needed_residual)
-				{
-					i = 0;
-					ii++;
-					if (current_residual > best_residual + (1e-10))
+					if (current_residual <= MIN_RESIDUAL)
 					{
-						//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
-						//printf_s("//---> BEST residual %.2e\n", best_residual);
+						best_residual = current_residual;
 						break;
 					}
-				}
-				if (current_residual <= MIN_RESIDUAL)
-				{
-					best_residual = current_residual;
-					break;
-				}
-				if (current_residual < best_residual)
-				{
-					best_residual = current_residual;
-					math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
-				}
-			}
-			math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
-			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
-		}
+					if (current_residual < best_residual)
+					{
+						best_residual = current_residual;
+						math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
 
+						FILE* fout;
+						char name_out[1000];
+						sprintf_s(name_out, "%s/Solution_residual_%.2e.txt", result_directory, current_residual);
+						fopen_s(&fout, name_out, "w");
+						for (int id_dof = 0; id_dof < best_solution.size(); id_dof++)
+						{
+							fprintf_s(fout, "%.15e\n", best_solution[id_dof]);
+						}
+						fclose(fout);
+					}
+				}
+
+				FILE* fout;
+				char name_out[1000];
+				sprintf_s(name_out, "%s/Solution_residual_%.2e.txt", result_directory, current_residual);
+				fopen_s(&fout, name_out, "w");
+				for (int id_dof = 0; id_dof < best_solution.size(); id_dof++)
+				{
+					fprintf_s(fout, "%.15e\n", best_solution[id_dof]);
+				}
+				fclose(fout);
+
+				math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
+				math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+			}
+		}
 		printf("\tcomplit\n\n");
-		t_before = clock();
+		clock_t t_before = clock();
 		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
-		end = omp_get_wtime();
+		clock_t end = omp_get_wtime();
 		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 
 
@@ -752,7 +776,7 @@ namespace FEM {
 			printf("SLAE assembling...\n");
 			std::vector<DenseMatrix<double, double>> local_SLAE(solver_grid.GetElementsCount());
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 			{
 				if (id_elem % 1000 == 0)
@@ -810,7 +834,7 @@ namespace FEM {
 			}
 			//симметризация
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int id_row = 0; id_row < global_SLAE.GetMatrixSize(); id_row++)
 			{
 				if (id_row % 1000 == 0)
@@ -1005,7 +1029,7 @@ namespace FEM {
 			printf("SLAE assembling...\n");
 			std::vector<DenseMatrix<double, double>> local_SLAE(solver_grid.GetElementsCount());
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
 			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
 			{
 				if (id_elem % 1000 == 0)
@@ -1092,7 +1116,7 @@ namespace FEM {
 			}
 			//симметризация
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int id_row = 0; id_row < global_SLAE.GetMatrixSize(); id_row++)
 			{
 				if (id_row % 1000 == 0)
@@ -1291,590 +1315,626 @@ namespace FEM {
 
 		CSSD_Matrix<Tensor2Rank3D, Point<double>> global_SLAE;
 
-		printf("Creation the SLAE portrait...");
-		solver_grid.CreationPortrait(global_SLAE);
-		printf_s("complite\n\n");
-		
-		//second condition
-		for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
+		FILE* fsolution;
+		char name_solution[1000];
+		sprintf_s(name_solution, "%s/Solution.txt", result_directory);
+		fopen_s(&fsolution, name_solution, "r");
+		if (fsolution != NULL)
 		{
-			std::vector<Point<double>> local_vector_SLAE;
-			solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
-			global_SLAE.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
-		};
-
-		//SLAE assembling
-		{
-			printf("SLAE assembling...\n");
-			std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE(solver_grid.GetElementsCount());
-			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+			printf_s("\n============READ current solution===========\n");
+			Solution.resize(solver_grid.GetDOFsCount());
+			for (int id_dof = 0; id_dof < Solution.size(); id_dof++)
 			{
-				if (id_elem % 1000 == 0)
-					printf("Solve element[%d]\r", id_elem);
-				auto element = solver_grid.GetElement(id_elem);
-
-				if (solver_grid.GetDomain(element->GetIdDomain())->forMech.GetE(0) <= 0)
-				{
-					//домен не должен идти в расчет
-					local_SLAE[id_elem].SetSize(element->GetDOFsCount());
-					/*for (int i = 0; i < element->GetDOFsCount(); i++)
-					{
-						local_SLAE[id_elem].A[i][i] = 1.0;
-					}*/
-				}
-				else {
-					std::function< std::vector<std::vector<double>>(Point<double> X) > koefD = [&](Point<double> X)->std::vector<std::vector<double>>
-					{
-						return (solver_grid.GetDomain(element->GetIdDomain()))->forMech.GetD(3);
-					};
-					element->SolveLocalMatrix(local_SLAE[id_elem], koefD);
-				}
-
+				fscanf_s(fsolution, "%lf", &Solution[id_dof]);
 			}
-			for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
-			{
-				if (id_elem % 1000 == 0)
-					printf("Add the local matrix of element[%d]\r", id_elem);
-				global_SLAE.SummPartOfMatrix(local_SLAE[id_elem], *solver_grid.GetElementDOFs(id_elem));
-
-				//char name[1000];
-				//sprintf_s(name, sizeof(name), "%s/Matrix_%d.txt", problem_directory, id_elem);
-				//PrintMatrix(name, global_SLAE);
-			}
-			/*for (int i = 0; i < global_SLAE.Diag.size(); i++)
-			{
-				for(int ii = 0; ii < 3; ii++)
-				if (math::IsEqual(global_SLAE.Diag[i].val[ii][ii], 0.0))
-				{
-					global_SLAE.Diag[i].val[ii][ii] = 1.0;
-				}
-			}*/
-			printf_s("                                                                                    \r");
-			printf_s("complite\n\n");
-			/*{
-				char name[1000];
-				sprintf_s(name, sizeof(name), "%s/Matrix_full.txt", problem_directory);
-				PrintMatrix(name, global_SLAE);
-			}*/
-
-
-
+			fclose(fsolution);
 		}
+		else {
+			printf("Creation the SLAE portrait...");
+			solver_grid.CreationPortrait(global_SLAE);
+			printf_s("complite\n\n");
 
-		//Boundary condition
-		if(false)
-		{
-			global_SLAE.MakeDivideOnSqrtFormSumm();
-			
-			//first condition
-			printf("First boundary conditions...");
-			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			//second condition
+			for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
 			{
-				Tensor2Rank3D diag, non_diag;
-				Point<double> X, F;
-				diag.InitializationAsI();
-				non_diag.InitializationAs0();
+				std::vector<Point<double>> local_vector_SLAE;
+				solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
+				global_SLAE.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
+			};
 
-				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+			//SLAE assembling
+			{
+				printf("SLAE assembling...\n");
+				std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE(solver_grid.GetElementsCount());
+				omp_set_num_threads(math::NUM_THREADS);
+#pragma omp parallel for schedule(dynamic)
+				for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+				{
+					if (id_elem % 1000 == 0)
+						printf("Solve element[%d]\r", id_elem);
+					auto element = solver_grid.GetElement(id_elem);
 
-				Point<bool> is_take;
-				Point<double> boundary_value = boundary->boundary_value(is_take, id_vertex);
-				///-->>>>>
-				/*boundary_value.x = 0;
-				boundary_value.y = 0;
-				boundary_value.z = 20*(*solver_grid.GetPtrCoordinateViaID(id_vertex)).z - 20*200*0.5;*/
-				///-->>>>>
-				int global_id = boundary->GetDOFInLocalID(0);
-				//printf_s("\n%d\r", global_id);
-
-				auto enter_boundary = [&](int position) {
-					switch (position)
+					if (solver_grid.GetDomain(element->GetIdDomain())->forMech.GetE(0) <= 0)
 					{
-					case 0: 
-						global_SLAE.X[global_id].x = boundary_value.x;
-						global_SLAE.F[global_id].x = boundary_value.x;
-						if (global_SLAE.F[global_id].x != global_SLAE.F[global_id].x)
+						//домен не должен идти в расчет
+						local_SLAE[id_elem].SetSize(element->GetDOFsCount());
+						/*for (int i = 0; i < element->GetDOFsCount(); i++)
 						{
-							printf_s("F[%d] = %.2e\n", global_id, global_SLAE.F[global_id].x);
-						}
-						break;
-					case 1:
-						global_SLAE.X[global_id].y = boundary_value.y;
-						global_SLAE.F[global_id].y = boundary_value.y;
-						if (global_SLAE.F[global_id].y != global_SLAE.F[global_id].y)
-						{
-							printf_s("F[%d] = %.2e\n", global_id, global_SLAE.F[global_id].y);
-						}
-						break;
-					case 2:
-						global_SLAE.X[global_id].z = boundary_value.z;
-						global_SLAE.F[global_id].z = boundary_value.z;
-						if (global_SLAE.F[global_id].z != global_SLAE.F[global_id].z)
-						{
-							printf_s("F[%d] = %.2e\n", global_id, global_SLAE.F[global_id].z);
-						}
-						break;
-					default:
-						break;
+							local_SLAE[id_elem].A[i][i] = 1.0;
+						}*/
 					}
-					
-					global_SLAE.Diag[global_id].val[position][0] = 0.0;
-					global_SLAE.Diag[global_id].val[position][1] = 0.0;
-					global_SLAE.Diag[global_id].val[position][2] = 0.0;
-					global_SLAE.Diag[global_id].val[position][position] = 1.0;
-					for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
-					{
-						global_SLAE.A_down[global_id][j].val[position][0] = 0.0;
-						global_SLAE.A_down[global_id][j].val[position][1] = 0.0;
-						global_SLAE.A_down[global_id][j].val[position][2] = 0.0;
-					}
-					for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
-					{
-						global_SLAE.A_up[global_id][j].val[position][0] = 0.0;
-						global_SLAE.A_up[global_id][j].val[position][1] = 0.0;
-						global_SLAE.A_up[global_id][j].val[position][2] = 0.0;
+					else {
+						std::function< std::vector<std::vector<double>>(Point<double> X) > koefD = [&](Point<double> X)->std::vector<std::vector<double>>
+						{
+							return (solver_grid.GetDomain(element->GetIdDomain()))->forMech.GetD(3);
+						};
+						element->SolveLocalMatrix(local_SLAE[id_elem], koefD);
 					}
 
-					//simmetrisation
-					//int position = 0;
-					if (false)
+				}
+				for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+				{
+					if (id_elem % 1000 == 0)
+						printf("Add the local matrix of element[%d]\r", id_elem);
+					global_SLAE.SummPartOfMatrix(local_SLAE[id_elem], *solver_grid.GetElementDOFs(id_elem));
+
+					//char name[1000];
+					//sprintf_s(name, sizeof(name), "%s/Matrix_%d.txt", problem_directory, id_elem);
+					//PrintMatrix(name, global_SLAE);
+				}
+				/*for (int i = 0; i < global_SLAE.Diag.size(); i++)
+				{
+					for(int ii = 0; ii < 3; ii++)
+					if (math::IsEqual(global_SLAE.Diag[i].val[ii][ii], 0.0))
 					{
-						double target_coef_in_firgt_side = 0;
+						global_SLAE.Diag[i].val[ii][ii] = 1.0;
+					}
+				}*/
+				printf_s("                                                                                    \r");
+				printf_s("complite\n\n");
+				/*{
+					char name[1000];
+					sprintf_s(name, sizeof(name), "%s/Matrix_full.txt", problem_directory);
+					PrintMatrix(name, global_SLAE);
+				}*/
+
+
+
+			}
+
+			//Boundary condition
+			if (false)
+			{
+				global_SLAE.MakeDivideOnSqrtFormSumm();
+
+				//first condition
+				printf("First boundary conditions...");
+				for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+				{
+					Tensor2Rank3D diag, non_diag;
+					Point<double> X, F;
+					diag.InitializationAsI();
+					non_diag.InitializationAs0();
+
+					auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+					Point<bool> is_take;
+					Point<double> boundary_value = boundary->boundary_value(is_take, id_vertex);
+					///-->>>>>
+					/*boundary_value.x = 0;
+					boundary_value.y = 0;
+					boundary_value.z = 20*(*solver_grid.GetPtrCoordinateViaID(id_vertex)).z - 20*200*0.5;*/
+					///-->>>>>
+					int global_id = boundary->GetDOFInLocalID(0);
+					//printf_s("\n%d\r", global_id);
+
+					auto enter_boundary = [&](int position) {
 						switch (position)
 						{
 						case 0:
-							target_coef_in_firgt_side = global_SLAE.F[global_id].x;
-							global_SLAE.F[global_id].y -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[1][position];
-							global_SLAE.F[global_id].z -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[2][position];
-							global_SLAE.Diag[global_id].val[0][position] = 0.0;
-							global_SLAE.Diag[global_id].val[1][position] = 0.0;
+							global_SLAE.X[global_id].x = boundary_value.x;
+							global_SLAE.F[global_id].x = boundary_value.x;
+							if (global_SLAE.F[global_id].x != global_SLAE.F[global_id].x)
+							{
+								printf_s("F[%d] = %.2e\n", global_id, global_SLAE.F[global_id].x);
+							}
 							break;
 						case 1:
-							target_coef_in_firgt_side = global_SLAE.F[global_id].y;
-							global_SLAE.F[global_id].x -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[0][position];
-							global_SLAE.F[global_id].z -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[2][position];
-							global_SLAE.Diag[global_id].val[0][position] = 0.0;
-							global_SLAE.Diag[global_id].val[2][position] = 0.0;
+							global_SLAE.X[global_id].y = boundary_value.y;
+							global_SLAE.F[global_id].y = boundary_value.y;
+							if (global_SLAE.F[global_id].y != global_SLAE.F[global_id].y)
+							{
+								printf_s("F[%d] = %.2e\n", global_id, global_SLAE.F[global_id].y);
+							}
 							break;
 						case 2:
-							target_coef_in_firgt_side = global_SLAE.F[global_id].z;
-							global_SLAE.F[global_id].x -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[0][position];
-							global_SLAE.F[global_id].y -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[1][position];
-							global_SLAE.Diag[global_id].val[0][position] = 0.0;
-							global_SLAE.Diag[global_id].val[1][position] = 0.0;
+							global_SLAE.X[global_id].z = boundary_value.z;
+							global_SLAE.F[global_id].z = boundary_value.z;
+							if (global_SLAE.F[global_id].z != global_SLAE.F[global_id].z)
+							{
+								printf_s("F[%d] = %.2e\n", global_id, global_SLAE.F[global_id].z);
+							}
+							break;
+						default:
 							break;
 						}
-						for (int i = 0; i < global_id; i++)
-						{
-							for (int j = 0; j < global_SLAE.id_column_for_A_up[i].size() &&
-								global_SLAE.id_column_for_A_up[i][j] <= global_id; j++)
-							{
-								if (global_id == global_SLAE.id_column_for_A_up[i][j])
-								{
-									global_SLAE.F[i].x -= target_coef_in_firgt_side * global_SLAE.A_up[i][j].val[0][position];
-									global_SLAE.F[i].y -= target_coef_in_firgt_side * global_SLAE.A_up[i][j].val[1][position];
-									global_SLAE.F[i].z -= target_coef_in_firgt_side * global_SLAE.A_up[i][j].val[2][position];
-									global_SLAE.A_up[i][j].val[0][position] = 0.0;
-									global_SLAE.A_up[i][j].val[1][position] = 0.0;
-									global_SLAE.A_up[i][j].val[2][position] = 0.0;
 
-									if (global_SLAE.F[i].x != global_SLAE.F[i].x || abs(global_SLAE.F[i].x) > 1e+50)
+						global_SLAE.Diag[global_id].val[position][0] = 0.0;
+						global_SLAE.Diag[global_id].val[position][1] = 0.0;
+						global_SLAE.Diag[global_id].val[position][2] = 0.0;
+						global_SLAE.Diag[global_id].val[position][position] = 1.0;
+						for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+						{
+							global_SLAE.A_down[global_id][j].val[position][0] = 0.0;
+							global_SLAE.A_down[global_id][j].val[position][1] = 0.0;
+							global_SLAE.A_down[global_id][j].val[position][2] = 0.0;
+						}
+						for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+						{
+							global_SLAE.A_up[global_id][j].val[position][0] = 0.0;
+							global_SLAE.A_up[global_id][j].val[position][1] = 0.0;
+							global_SLAE.A_up[global_id][j].val[position][2] = 0.0;
+						}
+
+						//simmetrisation
+						//int position = 0;
+						if (false)
+						{
+							double target_coef_in_firgt_side = 0;
+							switch (position)
+							{
+							case 0:
+								target_coef_in_firgt_side = global_SLAE.F[global_id].x;
+								global_SLAE.F[global_id].y -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[1][position];
+								global_SLAE.F[global_id].z -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[2][position];
+								global_SLAE.Diag[global_id].val[0][position] = 0.0;
+								global_SLAE.Diag[global_id].val[1][position] = 0.0;
+								break;
+							case 1:
+								target_coef_in_firgt_side = global_SLAE.F[global_id].y;
+								global_SLAE.F[global_id].x -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[0][position];
+								global_SLAE.F[global_id].z -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[2][position];
+								global_SLAE.Diag[global_id].val[0][position] = 0.0;
+								global_SLAE.Diag[global_id].val[2][position] = 0.0;
+								break;
+							case 2:
+								target_coef_in_firgt_side = global_SLAE.F[global_id].z;
+								global_SLAE.F[global_id].x -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[0][position];
+								global_SLAE.F[global_id].y -= target_coef_in_firgt_side * global_SLAE.Diag[global_id].val[1][position];
+								global_SLAE.Diag[global_id].val[0][position] = 0.0;
+								global_SLAE.Diag[global_id].val[1][position] = 0.0;
+								break;
+							}
+							for (int i = 0; i < global_id; i++)
+							{
+								for (int j = 0; j < global_SLAE.id_column_for_A_up[i].size() &&
+									global_SLAE.id_column_for_A_up[i][j] <= global_id; j++)
+								{
+									if (global_id == global_SLAE.id_column_for_A_up[i][j])
 									{
-										printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[0][position], global_id, global_SLAE.F[global_id].x);
+										global_SLAE.F[i].x -= target_coef_in_firgt_side * global_SLAE.A_up[i][j].val[0][position];
+										global_SLAE.F[i].y -= target_coef_in_firgt_side * global_SLAE.A_up[i][j].val[1][position];
+										global_SLAE.F[i].z -= target_coef_in_firgt_side * global_SLAE.A_up[i][j].val[2][position];
+										global_SLAE.A_up[i][j].val[0][position] = 0.0;
+										global_SLAE.A_up[i][j].val[1][position] = 0.0;
+										global_SLAE.A_up[i][j].val[2][position] = 0.0;
+
+										if (global_SLAE.F[i].x != global_SLAE.F[i].x || abs(global_SLAE.F[i].x) > 1e+50)
+										{
+											printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[0][position], global_id, global_SLAE.F[global_id].x);
+										}
+										if (global_SLAE.F[i].y != global_SLAE.F[i].y || abs(global_SLAE.F[i].y) > 1e+50)
+										{
+											printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[1][position], global_id, global_SLAE.F[global_id].y);
+										}
+										if (global_SLAE.F[i].z != global_SLAE.F[i].z || abs(global_SLAE.F[i].z) > 1e+50)
+										{
+											printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[2][position], global_id, global_SLAE.F[global_id].z);
+										}
 									}
-									if (global_SLAE.F[i].y != global_SLAE.F[i].y || abs(global_SLAE.F[i].y) > 1e+50)
+								}
+							}
+							for (int i = global_id + 1; i < global_SLAE.id_column_for_A_down.size(); i++)
+							{
+								for (int j = 0; j < global_SLAE.id_column_for_A_down[i].size() &&
+									global_SLAE.id_column_for_A_down[i][j] <= global_id; j++)
+								{
+									if (global_id == global_SLAE.id_column_for_A_down[i][j])
 									{
-										printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[1][position], global_id, global_SLAE.F[global_id].y);
-									}
-									if (global_SLAE.F[i].z != global_SLAE.F[i].z || abs(global_SLAE.F[i].z) > 1e+50)
-									{
-										printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[2][position], global_id, global_SLAE.F[global_id].z);
+										global_SLAE.F[i].x -= target_coef_in_firgt_side * global_SLAE.A_down[i][j].val[0][position];
+										global_SLAE.F[i].y -= target_coef_in_firgt_side * global_SLAE.A_down[i][j].val[1][position];
+										global_SLAE.F[i].z -= target_coef_in_firgt_side * global_SLAE.A_down[i][j].val[2][position];
+										global_SLAE.A_down[i][j].val[0][position] = 0.0;
+										global_SLAE.A_down[i][j].val[1][position] = 0.0;
+										global_SLAE.A_down[i][j].val[2][position] = 0.0;
+										if (global_SLAE.F[i].x != global_SLAE.F[i].x || abs(global_SLAE.F[i].x) > 1e+50)
+										{
+											printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[0][position], global_id, global_SLAE.F[global_id].x);
+										}
+										if (global_SLAE.F[i].y != global_SLAE.F[i].y || abs(global_SLAE.F[i].y) > 1e+50)
+										{
+											printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[1][position], global_id, global_SLAE.F[global_id].y);
+										}
+										if (global_SLAE.F[i].z != global_SLAE.F[i].z || abs(global_SLAE.F[i].z) > 1e+50)
+										{
+											printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[2][position], global_id, global_SLAE.F[global_id].z);
+										}
 									}
 								}
 							}
 						}
-						for (int i = global_id + 1; i < global_SLAE.id_column_for_A_down.size(); i++)
-						{
-							for (int j = 0; j < global_SLAE.id_column_for_A_down[i].size() &&
-								global_SLAE.id_column_for_A_down[i][j] <= global_id; j++)
-							{
-								if (global_id == global_SLAE.id_column_for_A_down[i][j])
-								{
-									global_SLAE.F[i].x -= target_coef_in_firgt_side * global_SLAE.A_down[i][j].val[0][position];
-									global_SLAE.F[i].y -= target_coef_in_firgt_side * global_SLAE.A_down[i][j].val[1][position];
-									global_SLAE.F[i].z -= target_coef_in_firgt_side * global_SLAE.A_down[i][j].val[2][position];
-									global_SLAE.A_down[i][j].val[0][position] = 0.0;
-									global_SLAE.A_down[i][j].val[1][position] = 0.0;
-									global_SLAE.A_down[i][j].val[2][position] = 0.0;
-									if (global_SLAE.F[i].x != global_SLAE.F[i].x || abs(global_SLAE.F[i].x) > 1e+50)
-									{
-										printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[0][position], global_id, global_SLAE.F[global_id].x);
-									}
-									if (global_SLAE.F[i].y != global_SLAE.F[i].y || abs(global_SLAE.F[i].y) > 1e+50)
-									{
-										printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[1][position], global_id, global_SLAE.F[global_id].y);
-									}
-									if (global_SLAE.F[i].z != global_SLAE.F[i].z || abs(global_SLAE.F[i].z) > 1e+50)
-									{
-										printf_s("i = %d; j = %d; A = %.2e; F[%d] = %.2e\n", i, j, global_SLAE.A_up[i][j].val[2][position], global_id, global_SLAE.F[global_id].z);
-									}
-								}
-							}
-						}
-					}
-				};
-				if (is_take.x == true) enter_boundary(0);
-				if (is_take.y == true) enter_boundary(1);
-				if (is_take.z == true) enter_boundary(2);
-
-				//if (is_take.x == true)
-				//{
-				//	global_SLAE.X[global_id].x = boundary_value.x;
-				//	global_SLAE.F[global_id].x = boundary_value.x;
-				//	global_SLAE.Diag[global_id].val[0][0] = 1.0;
-				//	global_SLAE.Diag[global_id].val[0][1] = 0.0;
-				//	global_SLAE.Diag[global_id].val[0][2] = 0.0;
-				//	for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
-				//	{
-				//		global_SLAE.A_down[global_id][j].val[0][0] = 0.0;
-				//		global_SLAE.A_down[global_id][j].val[0][1] = 0.0;
-				//		global_SLAE.A_down[global_id][j].val[0][2] = 0.0;
-				//	}
-				//	for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
-				//	{
-				//		global_SLAE.A_up[global_id][j].val[0][0] = 0.0;
-				//		global_SLAE.A_up[global_id][j].val[0][1] = 0.0;
-				//		global_SLAE.A_up[global_id][j].val[0][2] = 0.0;
-				//	}
-				//	//simmetrisation
-				//	int position = 0;
-				//	for (int i = 0; i < global_id; i++)
-				//	{
-				//		for (int j = 0; j < global_SLAE.id_column_for_A_up[i].size() &&
-				//			global_SLAE.id_column_for_A_up[i][j] <= global_id; j++)
-				//		{
-				//			if (global_id == global_SLAE.id_column_for_A_up[i][j])
-				//			{
-				//				global_SLAE.F[i].x -= global_SLAE.F[global_id].x *global_SLAE.A_up[i][j].val[0][position];
-				//				global_SLAE.F[i].y -= global_SLAE.F[global_id].y *global_SLAE.A_up[i][j].val[1][position];
-				//				global_SLAE.F[i].z -= global_SLAE.F[global_id].z *global_SLAE.A_up[i][j].val[2][position];
-				//				global_SLAE.A_up[i][j].val[0][position] = 0.0;
-				//				global_SLAE.A_up[i][j].val[1][position] = 0.0;
-				//				global_SLAE.A_up[i][j].val[2][position] = 0.0;
-				//			}
-				//		}
-				//	}
-				//	for (int i = global_id+1; i < global_SLAE.id_column_for_A_down.size(); i++)
-				//	{
-				//		for (int j = 0; j < global_SLAE.id_column_for_A_down[i].size() &&
-				//			global_SLAE.id_column_for_A_down[i][j] <= global_id; j++)
-				//		{
-				//			if (global_id == global_SLAE.id_column_for_A_down[i][j])
-				//			{
-				//				global_SLAE.F[i].x -= global_SLAE.F[global_id].x *global_SLAE.A_down[i][j].val[0][position];
-				//				global_SLAE.F[i].y -= global_SLAE.F[global_id].y *global_SLAE.A_down[i][j].val[1][position];
-				//				global_SLAE.F[i].z -= global_SLAE.F[global_id].z *global_SLAE.A_down[i][j].val[2][position];
-				//				global_SLAE.A_down[i][j].val[0][position] = 0.0;
-				//				global_SLAE.A_down[i][j].val[1][position] = 0.0;
-				//				global_SLAE.A_down[i][j].val[2][position] = 0.0;
-				//			}
-				//		}
-				//	}
-				//}
-				//if (is_take.y == true)
-				//{
-				//	global_SLAE.X[global_id].y = boundary_value.y;
-				//	global_SLAE.F[global_id].y = boundary_value.y;
-				//	global_SLAE.Diag[global_id].val[1][0] = 0.0;
-				//	global_SLAE.Diag[global_id].val[1][1] = 1.0;
-				//	global_SLAE.Diag[global_id].val[1][2] = 0.0;
-				//	for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
-				//	{
-				//		global_SLAE.A_down[global_id][j].val[1][0] = 0.0;
-				//		global_SLAE.A_down[global_id][j].val[1][1] = 0.0;
-				//		global_SLAE.A_down[global_id][j].val[1][2] = 0.0;
-				//	}
-				//	for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
-				//	{
-				//		global_SLAE.A_up[global_id][j].val[1][0] = 0.0;
-				//		global_SLAE.A_up[global_id][j].val[1][1] = 0.0;
-				//		global_SLAE.A_up[global_id][j].val[1][2] = 0.0;
-				//	}
-				//}
-				//if (is_take.z == true)
-				//{
-				//	global_SLAE.X[global_id].z = boundary_value.z;
-				//	global_SLAE.F[global_id].z = boundary_value.z;
-				//	global_SLAE.Diag[global_id].val[2][0] = 0.0;
-				//	global_SLAE.Diag[global_id].val[2][1] = 0.0;
-				//	global_SLAE.Diag[global_id].val[2][2] = 1.0;
-				//	for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
-				//	{
-				//		global_SLAE.A_down[global_id][j].val[2][0] = 0.0;
-				//		global_SLAE.A_down[global_id][j].val[2][1] = 0.0;
-				//		global_SLAE.A_down[global_id][j].val[2][2] = 0.0;
-				//	}
-				//	for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
-				//	{
-				//		global_SLAE.A_up[global_id][j].val[2][0] = 0.0;
-				//		global_SLAE.A_up[global_id][j].val[2][1] = 0.0;
-				//		global_SLAE.A_up[global_id][j].val[2][2] = 0.0;
-				//	}
-				//}
-
-				/*printf_s("complite\n\n");
-				char name[1000];
-				sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary_id_%d.txt", result_directory, global_id);
-				PrintMatrix(name, global_SLAE);*/
-			}
-			
-		}
-		CSSD_Matrix<double, double> newSLAE;
-		math::MakeCopyMatrix_A_into_B(global_SLAE, newSLAE);
-		//by double matrix;
-		if (true)
-		{
-			std::vector<int> use_id;
-			printf("First boundary conditions...");
-			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
-			{
-				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
-
-				Point<bool> is_take;
-				Point<double> boundary_value = boundary->boundary_value(is_take, solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
-
-				int global_id = boundary->GetDOFInLocalID(0);
-
-				/*boundary_value.x = 0;
-				boundary_value.y = 0;
-				Point<double> H = solver_grid.GetMaxCoordinate() - solver_grid.GetMinCoordinate();
-				boundary_value.z = 0.01 * (solver_grid.GetCoordinateViaID(global_id).z - H.z / 2.0);*/
-
-				if (global_id < global_SLAE.GetMatrixSize())
-				{
-					auto enter_value = [&newSLAE, &use_id](int value_id, double value) ->void
-					{
-						use_id.push_back(value_id);
-						newSLAE.X[value_id] = value;
-						newSLAE.F[value_id] = value;
-						newSLAE.Diag[value_id] = 1;
-						//Обнуляем строку
-						for (int i = 0; i < newSLAE.A_down[value_id].size(); i++)
-						{
-							newSLAE.A_down[value_id][i] = 0;
-						}
-						for (int i = 0; i < newSLAE.A_up[value_id].size(); i++)
-						{
-							newSLAE.A_up[value_id][i] = 0;
-						}
-						//обнуляем столбец
-						//for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
-						//{
-						//	//верхний треугольник
-						//	if (i < value_id)
-						//	{
-						//		for (int jj = 0; jj < newSLAE.A_up[i].size(); jj++)
-						//		{
-						//			if (newSLAE.id_column_for_A_up[i][jj] == value_id)
-						//			{
-						//				newSLAE.F[i] -= newSLAE.A_up[i][jj] * newSLAE.F[value_id];
-						//				newSLAE.A_up[i][jj] = 0;
-						//			}
-						//		}
-						//	}
-						//	//нижний треугольник
-						//	if (i > value_id)
-						//	{
-						//		for (int jj = 0; jj < newSLAE.A_down[i].size(); jj++)
-						//		{
-						//			if (newSLAE.id_column_for_A_down[i][jj] == value_id)
-						//			{
-						//				newSLAE.F[i] -= newSLAE.A_down[i][jj] * newSLAE.F[value_id];
-						//				newSLAE.A_down[i][jj] = 0;
-						//			}
-						//		}
-						//	}
-						//}
-						return;
 					};
+					if (is_take.x == true) enter_boundary(0);
+					if (is_take.y == true) enter_boundary(1);
+					if (is_take.z == true) enter_boundary(2);
 
-					if (is_take.x) enter_value(global_id * 3 + 0, boundary_value.x);
-					if (is_take.y) enter_value(global_id * 3 + 1, boundary_value.y);
-					if (is_take.z)
+					//if (is_take.x == true)
+					//{
+					//	global_SLAE.X[global_id].x = boundary_value.x;
+					//	global_SLAE.F[global_id].x = boundary_value.x;
+					//	global_SLAE.Diag[global_id].val[0][0] = 1.0;
+					//	global_SLAE.Diag[global_id].val[0][1] = 0.0;
+					//	global_SLAE.Diag[global_id].val[0][2] = 0.0;
+					//	for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+					//	{
+					//		global_SLAE.A_down[global_id][j].val[0][0] = 0.0;
+					//		global_SLAE.A_down[global_id][j].val[0][1] = 0.0;
+					//		global_SLAE.A_down[global_id][j].val[0][2] = 0.0;
+					//	}
+					//	for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+					//	{
+					//		global_SLAE.A_up[global_id][j].val[0][0] = 0.0;
+					//		global_SLAE.A_up[global_id][j].val[0][1] = 0.0;
+					//		global_SLAE.A_up[global_id][j].val[0][2] = 0.0;
+					//	}
+					//	//simmetrisation
+					//	int position = 0;
+					//	for (int i = 0; i < global_id; i++)
+					//	{
+					//		for (int j = 0; j < global_SLAE.id_column_for_A_up[i].size() &&
+					//			global_SLAE.id_column_for_A_up[i][j] <= global_id; j++)
+					//		{
+					//			if (global_id == global_SLAE.id_column_for_A_up[i][j])
+					//			{
+					//				global_SLAE.F[i].x -= global_SLAE.F[global_id].x *global_SLAE.A_up[i][j].val[0][position];
+					//				global_SLAE.F[i].y -= global_SLAE.F[global_id].y *global_SLAE.A_up[i][j].val[1][position];
+					//				global_SLAE.F[i].z -= global_SLAE.F[global_id].z *global_SLAE.A_up[i][j].val[2][position];
+					//				global_SLAE.A_up[i][j].val[0][position] = 0.0;
+					//				global_SLAE.A_up[i][j].val[1][position] = 0.0;
+					//				global_SLAE.A_up[i][j].val[2][position] = 0.0;
+					//			}
+					//		}
+					//	}
+					//	for (int i = global_id+1; i < global_SLAE.id_column_for_A_down.size(); i++)
+					//	{
+					//		for (int j = 0; j < global_SLAE.id_column_for_A_down[i].size() &&
+					//			global_SLAE.id_column_for_A_down[i][j] <= global_id; j++)
+					//		{
+					//			if (global_id == global_SLAE.id_column_for_A_down[i][j])
+					//			{
+					//				global_SLAE.F[i].x -= global_SLAE.F[global_id].x *global_SLAE.A_down[i][j].val[0][position];
+					//				global_SLAE.F[i].y -= global_SLAE.F[global_id].y *global_SLAE.A_down[i][j].val[1][position];
+					//				global_SLAE.F[i].z -= global_SLAE.F[global_id].z *global_SLAE.A_down[i][j].val[2][position];
+					//				global_SLAE.A_down[i][j].val[0][position] = 0.0;
+					//				global_SLAE.A_down[i][j].val[1][position] = 0.0;
+					//				global_SLAE.A_down[i][j].val[2][position] = 0.0;
+					//			}
+					//		}
+					//	}
+					//}
+					//if (is_take.y == true)
+					//{
+					//	global_SLAE.X[global_id].y = boundary_value.y;
+					//	global_SLAE.F[global_id].y = boundary_value.y;
+					//	global_SLAE.Diag[global_id].val[1][0] = 0.0;
+					//	global_SLAE.Diag[global_id].val[1][1] = 1.0;
+					//	global_SLAE.Diag[global_id].val[1][2] = 0.0;
+					//	for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+					//	{
+					//		global_SLAE.A_down[global_id][j].val[1][0] = 0.0;
+					//		global_SLAE.A_down[global_id][j].val[1][1] = 0.0;
+					//		global_SLAE.A_down[global_id][j].val[1][2] = 0.0;
+					//	}
+					//	for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+					//	{
+					//		global_SLAE.A_up[global_id][j].val[1][0] = 0.0;
+					//		global_SLAE.A_up[global_id][j].val[1][1] = 0.0;
+					//		global_SLAE.A_up[global_id][j].val[1][2] = 0.0;
+					//	}
+					//}
+					//if (is_take.z == true)
+					//{
+					//	global_SLAE.X[global_id].z = boundary_value.z;
+					//	global_SLAE.F[global_id].z = boundary_value.z;
+					//	global_SLAE.Diag[global_id].val[2][0] = 0.0;
+					//	global_SLAE.Diag[global_id].val[2][1] = 0.0;
+					//	global_SLAE.Diag[global_id].val[2][2] = 1.0;
+					//	for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+					//	{
+					//		global_SLAE.A_down[global_id][j].val[2][0] = 0.0;
+					//		global_SLAE.A_down[global_id][j].val[2][1] = 0.0;
+					//		global_SLAE.A_down[global_id][j].val[2][2] = 0.0;
+					//	}
+					//	for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+					//	{
+					//		global_SLAE.A_up[global_id][j].val[2][0] = 0.0;
+					//		global_SLAE.A_up[global_id][j].val[2][1] = 0.0;
+					//		global_SLAE.A_up[global_id][j].val[2][2] = 0.0;
+					//	}
+					//}
+
+					/*printf_s("complite\n\n");
+					char name[1000];
+					sprintf_s(name, sizeof(name), "%s/Matrix_with_boundary_id_%d.txt", result_directory, global_id);
+					PrintMatrix(name, global_SLAE);*/
+				}
+
+			}
+			CSSD_Matrix<double, double> newSLAE;
+			math::MakeCopyMatrix_A_into_B(global_SLAE, newSLAE);
+			//by double matrix;
+			if (true)
+			{
+				std::vector<int> use_id;
+				printf("First boundary conditions...");
+				for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+				{
+					auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+					Point<bool> is_take;
+					Point<double> boundary_value = boundary->boundary_value(is_take, solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
+
+					int global_id = boundary->GetDOFInLocalID(0);
+
+					/*boundary_value.x = 0;
+					boundary_value.y = 0;
+					Point<double> H = solver_grid.GetMaxCoordinate() - solver_grid.GetMinCoordinate();
+					boundary_value.z = 0.01 * (solver_grid.GetCoordinateViaID(global_id).z - H.z / 2.0);*/
+
+					if (global_id < global_SLAE.GetMatrixSize())
 					{
-						//if (boundary_value.z > 0) boundary_value.z = 1;
-						enter_value(global_id * 3 + 2, boundary_value.z);
+						auto enter_value = [&newSLAE, &use_id](int value_id, double value) ->void
+						{
+							use_id.push_back(value_id);
+							newSLAE.X[value_id] = value;
+							newSLAE.F[value_id] = value;
+							newSLAE.Diag[value_id] = 1;
+							//Обнуляем строку
+							for (int i = 0; i < newSLAE.A_down[value_id].size(); i++)
+							{
+								newSLAE.A_down[value_id][i] = 0;
+							}
+							for (int i = 0; i < newSLAE.A_up[value_id].size(); i++)
+							{
+								newSLAE.A_up[value_id][i] = 0;
+							}
+							//обнуляем столбец
+							//for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
+							//{
+							//	//верхний треугольник
+							//	if (i < value_id)
+							//	{
+							//		for (int jj = 0; jj < newSLAE.A_up[i].size(); jj++)
+							//		{
+							//			if (newSLAE.id_column_for_A_up[i][jj] == value_id)
+							//			{
+							//				newSLAE.F[i] -= newSLAE.A_up[i][jj] * newSLAE.F[value_id];
+							//				newSLAE.A_up[i][jj] = 0;
+							//			}
+							//		}
+							//	}
+							//	//нижний треугольник
+							//	if (i > value_id)
+							//	{
+							//		for (int jj = 0; jj < newSLAE.A_down[i].size(); jj++)
+							//		{
+							//			if (newSLAE.id_column_for_A_down[i][jj] == value_id)
+							//			{
+							//				newSLAE.F[i] -= newSLAE.A_down[i][jj] * newSLAE.F[value_id];
+							//				newSLAE.A_down[i][jj] = 0;
+							//			}
+							//		}
+							//	}
+							//}
+							return;
+						};
+
+						if (is_take.x) enter_value(global_id * 3 + 0, boundary_value.x);
+						if (is_take.y) enter_value(global_id * 3 + 1, boundary_value.y);
+						if (is_take.z)
+						{
+							//if (boundary_value.z > 0) boundary_value.z = 1;
+							enter_value(global_id * 3 + 2, boundary_value.z);
+						}
+
+
+					}
+				}
+
+				//
+						//симметризация
+				omp_set_num_threads(math::NUM_THREADS);
+#pragma omp parallel for schedule(dynamic) 
+				for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
+				{
+					if (id_row % 100 == 0)
+					{
+						printf("\tcurrent %d/%d\r", id_row, newSLAE.GetMatrixSize());
+					}
+					int iterator_in_boundary = 0;
+					for (int jj = 0; jj < newSLAE.id_column_for_A_up[id_row].size(); jj++)
+					{
+						int id_column = newSLAE.id_column_for_A_up[id_row][jj];
+						for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
+						{
+							if (use_id[iterator_in_boundary] == id_column)
+							{
+								//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+
+								newSLAE.F[id_row] -= newSLAE.A_up[id_row][jj] * newSLAE.F[id_column];
+								newSLAE.A_up[id_row][jj] = 0;
+
+								break;
+							}
+							if (use_id[iterator_in_boundary] > id_column)
+							{
+								//iterator_in_boundary--;
+								break;
+							}
+						}
 					}
 
-					
-				}
-			}
-
-			//
-					//симметризация
-			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
-			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
-			{
-				if (id_row % 100 == 0)
-				{
-					printf("\tcurrent %d/%d\r", id_row, newSLAE.GetMatrixSize());
-				}
-				int iterator_in_boundary = 0;
-				for (int jj = 0; jj < newSLAE.id_column_for_A_up[id_row].size(); jj++)
-				{
-					int id_column = newSLAE.id_column_for_A_up[id_row][jj];
-					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
+					iterator_in_boundary = 0;
+					for (int jj = 0; jj < newSLAE.id_column_for_A_down[id_row].size(); jj++)
 					{
-						if (use_id[iterator_in_boundary] == id_column)
+						int id_column = newSLAE.id_column_for_A_down[id_row][jj];
+						for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
 						{
-							//double boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
+							if (use_id[iterator_in_boundary] == id_column)
+							{
+								//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
 
-							newSLAE.F[id_row] -= newSLAE.A_up[id_row][jj] * newSLAE.F[id_column];
-							newSLAE.A_up[id_row][jj] = 0;
+								newSLAE.F[id_row] -= newSLAE.A_down[id_row][jj] * newSLAE.F[id_column];
+								newSLAE.A_down[id_row][jj] = 0;
 
-							break;
-						}
-						if (use_id[iterator_in_boundary] > id_column)
-						{
-							//iterator_in_boundary--;
-							break;
-						}
-					}
-				}
-
-				iterator_in_boundary = 0;
-				for (int jj = 0; jj < newSLAE.id_column_for_A_down[id_row].size(); jj++)
-				{
-					int id_column = newSLAE.id_column_for_A_down[id_row][jj];
-					for (/*iterator_in_boundary = 0*/; iterator_in_boundary < use_id.size(); iterator_in_boundary++)
-					{
-						if (use_id[iterator_in_boundary] == id_column)
-						{
-							//Point<double> boundary_value = solver_grid.boundary_vertexes[iterator_in_boundary].boundary_value(solver_grid.boundary_vertexes[iterator_in_boundary].GetIdNode(0));
-
-							newSLAE.F[id_row] -= newSLAE.A_down[id_row][jj] * newSLAE.F[id_column];
-							newSLAE.A_down[id_row][jj] = 0;
-
-							break;
-						}
-						if (use_id[iterator_in_boundary] > id_column)
-						{
-							//iterator_in_boundary--;
-							break;
+								break;
+							}
+							if (use_id[iterator_in_boundary] > id_column)
+							{
+								//iterator_in_boundary--;
+								break;
+							}
 						}
 					}
 				}
 			}
-		}
-		
-		clock_t t_before = clock();
-		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
-		double end = omp_get_wtime();
-		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 
-		if(false)
-		{
-			printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
-			int MaxSize = global_SLAE.GetMatrixSize()/100;
-			std::vector<Point<double>> best_solution;
-			math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
-			double current_residual = 1, best_residual = 1e+25;
-			int MAX_STEPS = 15;
-			for (int i = 0; i <= MAX_STEPS; i++)
-			{
-				current_residual = pow(10., -1 * (i+1));
-				//current_residual /= 2.;
-				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), current_residual);
-				current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, current_residual));
-				if (current_residual <= MIN_RESIDUAL)
-					break;
-				if (current_residual > best_residual + (1e-10))
-				{
-					math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
-					printf_s("//---> BEST residual %.2e\n", best_residual);
-					break;
-				}
-				if (current_residual < best_residual)
-				{
-					best_residual = current_residual;
-					math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
-				}
-			}
-			printf_s("//---> BEST residual %.2e\n", best_residual);
-			math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
-		}
-
-		if (true)
-		{
-			//math::MakeCopyVector_A_into_B(newSLAE.F, newSLAE.X);
-			/*for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
-				newSLAE.X[i] = 1e-5;*/
-
-			//newSLAE.log_out = stream;
-			//newSLAE.print_logs = is_print_logFile;
-
-			printf("Soluting SLAY... (%d)\n", newSLAE.GetMatrixSize());
-			int MaxSize = newSLAE.GetMatrixSize();
-			MaxSize = MaxSize/10 < 10 ? 10 : MaxSize/10;
-			std::vector<double> best_solution;
-			math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
-			double current_residual = 1, best_residual = 1e+25;
-			int MAX_STEPS = 4;
-			int ii = 1;
-			//newSLAE.MakeDivideOnSqrtFormSumm();
-			CSSD_Matrix<double, double> Precond;
-			Precond.PrecondorSSOR(0.75, newSLAE);
-			for (int i = 0; i <= MAX_STEPS; i++)
-			{
-				double needed_residual = pow(10., -1 * (ii + 1));
-				//current_residual /= 2.;
-				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
-				
-				newSLAE.print_logs = true;
-				current_residual = abs(newSLAE.MSG_PreconditioningSSOR(newSLAE.GetMatrixSize(), needed_residual, Precond));
-				
-				if (current_residual < needed_residual)
-				{
-					i = 0;
-					ii++;
-				}
-				if (current_residual > best_residual*100)
-				{
-					//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
-					//printf_s("//---> BEST residual %.2e\n", best_residual);
-					break;
-				}
-				if (current_residual <= MIN_RESIDUAL)
-				{
-					best_residual = current_residual;
-					break;
-				}
-				if (current_residual < best_residual)
-				{
-					best_residual = current_residual;
-					math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
-				}
-			}
-			math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
-			printf_s("//---> BEST residual %.2e\n", best_residual);
+			clock_t t_before = clock();
+			printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
+			double end = omp_get_wtime();
+			printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 			math::MakeCopyVector_A_into_B(newSLAE.X, Solution);
 
-			
-			if (best_residual >= 1)
+			if (false)
 			{
-				printf_s("There are problems in the solution\n");
-				int a;
-				scanf_s("%d", &a);
+				printf("Soluting SLAY... (%d)\n", global_SLAE.GetMatrixSize());
+				int MaxSize = global_SLAE.GetMatrixSize() / 100;
+				std::vector<Point<double>> best_solution;
+				math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+				double current_residual = 1, best_residual = 1e+25;
+				int MAX_STEPS = 15;
+				for (int i = 0; i <= MAX_STEPS; i++)
+				{
+					current_residual = pow(10., -1 * (i + 1));
+					//current_residual /= 2.;
+					printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, global_SLAE.GetMatrixSize(), current_residual);
+					current_residual = abs(global_SLAE.BiCG_Stab(MaxSize, current_residual));
+					if (current_residual <= MIN_RESIDUAL)
+						break;
+					if (current_residual > best_residual + (1e-10))
+					{
+						math::MakeCopyVector_A_into_B(best_solution, global_SLAE.X);
+						printf_s("//---> BEST residual %.2e\n", best_residual);
+						break;
+					}
+					if (current_residual < best_residual)
+					{
+						best_residual = current_residual;
+						math::MakeCopyVector_A_into_B(global_SLAE.X, best_solution);
+					}
+				}
+				printf_s("//---> BEST residual %.2e\n", best_residual);
+				math::MakeCopyVector_A_into_B(global_SLAE.X, Solution);
+			}
+
+			if (true)
+			{
+				//math::MakeCopyVector_A_into_B(newSLAE.F, newSLAE.X);
+				/*for (int i = 0; i < newSLAE.GetMatrixSize(); i++)
+					newSLAE.X[i] = 1e-5;*/
+
+					//newSLAE.log_out = stream;
+					//newSLAE.print_logs = is_print_logFile;
+
+				printf("Soluting SLAY... (%d)\n", newSLAE.GetMatrixSize());
+				int MaxSize = newSLAE.GetMatrixSize();
+				MaxSize = MaxSize / 10 < 10 ? 10 : MaxSize / 10;
+				std::vector<double> best_solution;
+				math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
+				double current_residual = 1, best_residual = 1e+25;
+				int MAX_STEPS = 4;
+				int ii = 1;
+				//newSLAE.MakeDivideOnSqrtFormSumm();
+				CSSD_Matrix<double, double> Precond;
+				Precond.PrecondorSSOR(0.75, newSLAE);
+				for (int i = 0; i <= MAX_STEPS; i++)
+				{
+					double needed_residual = pow(10., -1 * (ii + 1));
+					//current_residual /= 2.;
+					printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
+
+					newSLAE.print_logs = true;
+					current_residual = abs(newSLAE.MSG_PreconditioningSSOR(newSLAE.GetMatrixSize(), needed_residual, Precond));
+
+					if (current_residual < needed_residual)
+					{
+						i = 0;
+						ii++;
+					}
+					if (current_residual > best_residual * 100)
+					{
+						//math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
+						//printf_s("//---> BEST residual %.2e\n", best_residual);
+						break;
+					}
+					if (current_residual <= MIN_RESIDUAL)
+					{
+						best_residual = current_residual;
+						break;
+					}
+					if (current_residual < best_residual)
+					{
+						best_residual = current_residual;
+						math::MakeCopyVector_A_into_B(newSLAE.X, best_solution);
+
+						FILE* fout;
+						char name_out[1000];
+						sprintf_s(name_out, "%s/Solution_residual_%.2e.txt", result_directory, current_residual);
+						fopen_s(&fout, name_out, "w");
+						for (int id_dof = 0; id_dof < best_solution.size(); id_dof++)
+						{
+							fprintf_s(fout, "%.15e\n", best_solution[id_dof]);
+						}
+						fclose(fout);
+					}
+				}
+				math::MakeCopyVector_A_into_B(best_solution, newSLAE.X);
+				printf_s("//---> BEST residual %.2e\n", best_residual);
+				math::MakeCopyVector_A_into_B(newSLAE.X, Solution);
+
+				FILE* fout;
+				char name_out[1000];
+				sprintf_s(name_out, "%s/Solution_residual_%.2e.txt", result_directory, current_residual);
+				fopen_s(&fout, name_out, "w");
+				for (int id_dof = 0; id_dof < best_solution.size(); id_dof++)
+				{
+					fprintf_s(fout, "%.15e\n", best_solution[id_dof]);
+				}
+				fclose(fout);
+
+
+				if (best_residual >= 1)
+				{
+					printf_s("There are problems in the solution\n");
+					int a;
+					scanf_s("%d", &a);
+				}
 			}
 		}
-
-		
-
 		printf("\tcomplit\n\n");
-		t_before = clock();
+		clock_t t_before = clock();
 		printf("TIME = %lf sec\n", (t_before - t_after) * 1.0 / CLK_TCK);
-		end = omp_get_wtime();
+		clock_t end = omp_get_wtime();
 		printf("start = %.16g\nend = %.16g\ndiff = %.16g\n", start, end, end - start);
 
 
@@ -2808,7 +2868,7 @@ namespace FEM {
 
 			//симметризация
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
 			{
 				if (id_row % 1000 == 0)
@@ -3101,12 +3161,14 @@ namespace FEM {
 			int ii = 1;
 			CSSD_Matrix<double, double> Precond;
 			Precond.PrecondorSSOR(0.75, SLAE_in_old_DOF);
+			SLAE_in_old_DOF.print_logs = is_print_logFile;
+
 			for (int i = 0; i <= MAX_STEPS; i++)
 			{
 				double needed_residual = pow(10., -1 * (ii + 1));
 				needed_residual = needed_residual < MIN_RESIDUAL ? MIN_RESIDUAL : needed_residual;
 				//current_residual /= 2.;
-				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
+				if (is_print_logFile) printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
 
 				current_residual = abs(SLAE_in_old_DOF.MSG_PreconditioningSSOR(MaxSize,
 					needed_residual,
@@ -3611,7 +3673,7 @@ namespace FEM {
 
 			//симметризация
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
 			{
 				if (id_row % 1000 == 0)
@@ -3677,6 +3739,7 @@ namespace FEM {
 			int ii = 1;
 			CSSD_Matrix<double, double> Precond;
 			Precond.PrecondorSSOR(0.75, newSLAE);
+			newSLAE.print_logs = is_print_logFile;
 
 			for (int i = 0; i <= MAX_STEPS; i++)
 			{
@@ -4186,7 +4249,7 @@ namespace FEM {
 
 			//симметризация
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int id_row = 0; id_row < newSLAE.GetMatrixSize(); id_row++)
 			{
 				if (id_row % 1000 == 0)
@@ -4479,12 +4542,13 @@ namespace FEM {
 			int ii = 1;
 			CSSD_Matrix<double, double> Precond;
 			Precond.PrecondorSSOR(0.75, SLAE_in_old_DOF);
+			SLAE_in_old_DOF.print_logs = is_print_logFile;
 			for (int i = 0; i <= MAX_STEPS; i++)
 			{
 				double needed_residual = pow(10., -1 * (ii + 1));
 				needed_residual = needed_residual < MIN_RESIDUAL ? MIN_RESIDUAL : needed_residual;
 				//current_residual /= 2.;
-				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
+				if (is_print_logFile) printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, newSLAE.GetMatrixSize(), needed_residual);
 
 				current_residual = abs(SLAE_in_old_DOF.MSG_PreconditioningSSOR(MaxSize,
 					needed_residual,

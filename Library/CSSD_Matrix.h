@@ -320,7 +320,7 @@ public:
 		{
 			if (result.size() != B.size()) result.resize(B.size());
 			omp_set_num_threads(math::NUM_THREADS);
-#pragma omp parallel for 
+#pragma omp parallel for schedule(dynamic) 
 			for (int i = 0; i < result.size(); i++)
 			{
 				TForVector tmp;
@@ -499,7 +499,7 @@ public:
 				}
 			}
 		}*/
-//#pragma omp parallel for 
+//#pragma omp parallel for schedule(dynamic) 
 		for (int i = 0; i < this->Diag.size(); i++)
 		{
 			if(omp_get_thread_num() == 0 && i %1000 == 0)
@@ -634,7 +634,7 @@ public:
 				printf("\tBSGstab\t>\tNO SOLUTION\t>\t%d\t-\t%.5e\n", i, a_norma);
 				break;
 			}
-			if (i % 1000 == 0)
+			if (i % 1000 == 0 && this->print_logs == true)
 			{
 				printf_s("\tBSGstab\t\t>\t%d\t-\t%.5e\n", i, a_norma);
 			}
@@ -645,7 +645,7 @@ public:
 		for (int i = 0; i < this->GetMatrixSize(); i++)
 			temp += (F[i] - r[i]) * (F[i] - r[i]);
 		double result = sqrt(temp) / f_norma;
-		printf("\tBSGstab\t\t>\t%d\t-\t%.5e (%.5e resolve residual)\n", i, a_norma, result);
+		if (this->print_logs) printf("\tBSGstab\t\t>\t%d\t-\t%.5e (%.5e resolve residual)\n", i, a_norma, result);
 
 		return result;
 	}
@@ -1230,7 +1230,7 @@ public:
 			//if( k == maxiter ) printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!!!!!!!\n");
 			if (!(k % 1000) || k == 1)
 			{
-				printf("\tMSG\t>\t%d\t-\t%.5e\n", k-1, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)));
+				if(this->print_logs) printf("\tMSG\t>\t%d\t-\t%.5e\n", k-1, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(this->F, this->F)));
 				/*mult(U);
 				double tmp1 = 0, tmp2 = 0;
 				for (int i = 0; i < U.size(); i++)
@@ -1255,7 +1255,7 @@ public:
 			tmp1 += (temp_mult[i] - this->F[i])*(temp_mult[i] - this->F[i]);
 			tmp2 += (this->F[i])*(this->F[i]);
 		}
-		printf("\tMSG\t>\t%d\t-\t%.5e (resolve residual)\n", k, sqrt(tmp1 / tmp2));
+		if (this->print_logs)printf("\tMSG\t>\t%d\t-\t%.5e (resolve residual)\n", k, sqrt(tmp1 / tmp2));
 		double current_r = sqrt(tmp1 / tmp2);
 
 		temp_mult.clear();
