@@ -762,6 +762,10 @@ void EffectiveSigmaZ_3Dmsh_ManyObj_WithBoundaryTag_1DOF(char* properties_file)
 		math::ParserStringToVectorInt(_line, val_i, " ");
 
 		if (val_i[0] == 1) is_print_logFile = true;
+
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		math::ParserStringToVectorInt(_line, val_i, " ");
+		math::NUM_THREADS = val_i[0];
 	}
 
 	int num_in_FE;

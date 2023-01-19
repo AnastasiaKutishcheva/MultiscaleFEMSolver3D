@@ -1,6 +1,7 @@
 
 #pragma once
 #include <vector>
+#include <iostream>
 
 //SLAE solution AX=F 
 template <typename TForMatrix, typename TForVector> 
@@ -1083,6 +1084,143 @@ public:
 		}
 		return result;
 	}
+
+	//решение СЛАУ с диагональной матрицей D * X = F
+	void Start_Diag_Solver(const std::vector<double>& _F, std::vector<double>& _X, std::vector<double>& _Diag)
+	{
+		int N = _Diag.size();
+		for (int i = 0; i < N; i++)
+		{
+			if (fabs(_Diag[i]) < 1e-15)
+			{
+				std::cout << _Diag[i] << " < " << 1e-15;
+				std::getchar();
+			}
+			_X[i] = _F[i] / _Diag[i];
+		}
+	}
+	//старт алгоритма решателя BiCG с диагональным преобусловливателем
+//residual_norm - норма невязки (точность решения), max_iter - максимальное количество итераций
+	double BiCG_Diag(int maxiter, double E, std::vector<double> &_Diag)
+	{
+		//размер системы
+		int n = this->F.size();
+
+		//вспомогательные векторы
+		std::vector<double> r(n);
+		std::vector<double> p(n);
+		std::vector<double> r_(n);
+		std::vector<double> p_(n);
+		std::vector<double> vec(n);
+		std::vector<double> vec_(n);
+		std::vector<double> vec_help(n);
+
+		//параметры метода
+		double alpha, beta, sc1, sc2, Residual_Norm, Old_Residual_Norm;
+
+		//флаг для останова алгоритма
+		bool Flag = false;
+		//текущая итерация метода
+		int Iter = 0;
+
+		//начальное приближение
+		//for (int i = 0; i < n; i++) x[i] = 0;
+
+		//вычисляется ветор невязки r0 = M^(-1) * r, r = (f - Ax) 
+		this->MultiplicationMatrixVector(this->X, vec_help);
+		for (int i = 0; i < n; i++)
+			vec_help[i] = this->F[i] - vec_help[i];
+		Start_Diag_Solver(vec_help, r, _Diag);
+
+		Residual_Norm = sqrt(math::MakeInnerProduct(r,r));
+
+		//выбор начальных значений векторов метода BiCG
+		math::MakeCopyVector_A_into_B(r, p);
+		math::MakeCopyVector_A_into_B(r, r_);
+		math::MakeCopyVector_A_into_B(r_, p_);
+
+		while (!Flag && Iter < maxiter)
+		{
+			//скалярное произведение (r; r_)
+			sc1 = math::MakeInnerProduct(r, r_);
+
+			//vec_help = A * p
+			this->MultiplicationMatrixVector(p, vec_help);
+
+			//преобусловливание: Ap = M^(-1) * A * p
+			Start_Diag_Solver(vec_help, vec, _Diag);
+
+			//(M^(-1) * A * p; p_) ИЛИ можно (A * p; M^(-1) * p_)
+			sc2 = math::MakeInnerProduct(vec, p_);
+
+			//первый коэффициент в методе Ланцоша
+			alpha = sc1 / sc2;
+
+			Old_Residual_Norm = Residual_Norm;
+			Residual_Norm = 0;
+
+			//переопределим результат и невязку
+			for (int i = 0; i < n; i++)
+			{
+				this->X[i] += alpha * p[i];
+				r[i] -= alpha * vec[i];
+				Residual_Norm += r[i] * r[i];
+			}
+
+			//норма обычной невязки
+			Residual_Norm = sqrt(Residual_Norm);
+
+			//переводим вектор p_ в преобусловленную систему
+			Start_Diag_Solver(p_, vec_help, _Diag);
+
+			//vec_ = A_t * M^(-t) * p_
+			this->MultiplicationMatrixVector(vec_help, vec_);
+
+			//новая невязка r_
+			for (int i = 0; i < n; i++) r_[i] -= alpha * vec_[i];
+
+			//(r_new; (r_)_new)
+			sc2 = math::MakeInnerProduct(r, r_);
+
+			//второй коэффициент в методе Ланцоша
+			beta = sc2 / sc1;
+
+			if (Residual_Norm < E) Flag = 1;
+			if (this->print_logs && (!(Iter % 100) || Iter == 1))
+			{
+				printf("\tBSG_DIAG\t>\t%d\t-\t%.5e\n", Iter, Residual_Norm);
+			}
+
+			//процедура Ланцоша
+			if (Flag == 0)
+			{
+				for (int i = 0; i < n; i++)
+				{
+					p[i] = r[i] + beta * p[i];
+					p_[i] = r_[i] + beta * p_[i];
+				}
+			}
+
+			Iter++;
+		}
+
+		//считаем настоящую невязку
+		this->MultiplicationMatrixVector(this->X, vec_help);
+		double tmp1 = 0, tmp2 = 0;
+		for (int i = 0; i < this->X.size(); i++)
+		{
+			tmp1 += (vec_help[i] - this->F[i]) * (vec_help[i] - this->F[i]);
+			tmp2 += (this->F[i]) * (this->F[i]);
+		}
+		if (this->print_logs)
+			printf("\tBSG_DIAG\t>\t%d\t-\t%.5e (%.5e resolve residual)\n",
+				Iter,
+				Residual_Norm,
+				sqrt(tmp1 / tmp2));
+
+		//return sqrt(tmp1 / tmp2);
+		return Residual_Norm;
+}
 
 	double MSG_PreconditioningSSOR(int maxiter, double E, CSSD_Matrix<double, double> &Precondor)
 	{

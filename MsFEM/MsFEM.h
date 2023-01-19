@@ -594,12 +594,18 @@ namespace MsFEM {
 				fopen_s(&stream, name_out_log, "w");
 			}*/
 
+			char tmp_directory[1000];
+			sprintf_s(tmp_directory, sizeof(tmp_directory), "%s/tmp", result_directory);
+			wchar_t _tmp_wc[1000];
+			math::Char_To_Wchar_t(tmp_directory, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+
 			clock_t t_after = clock();
 			double start = omp_get_wtime();
 
 			printf("Initialization of grid...\n");
 			solver_grid.is_print_logFile = is_print_logFile;
-			solver_grid.Initialization(geo_grid, first_boundary, second_boundary, fine_mesh_directory);
+			solver_grid.Initialization(geo_grid, first_boundary, second_boundary, fine_mesh_directory, tmp_directory);
 			printf_s("complite                   \n\n");
 
 			printf("Creation the SLAE portrait...");
@@ -629,10 +635,12 @@ namespace MsFEM {
 
 					FILE* fin_matrix;
 					char name_matrix[5000];
-					sprintf_s(name_matrix, "%s/local_matrix.txt", element->self_direction);
+					sprintf_s(name_matrix, "%s/local_matrix.txt", element->self_tmp_direction);
 					fopen_s(&fin_matrix, name_matrix, "r");
 					if (fin_matrix == NULL)
 					{
+					solve_matrix:
+
 						std::function< std::vector<std::vector<double>>(Point<double> X) > koefD = [&](Point<double> X)->std::vector<std::vector<double>>
 						{
 							return (solver_grid.GetDomain(0))->forMech.GetD(3);
@@ -666,7 +674,16 @@ namespace MsFEM {
 								{
 									for (int jj = 0; jj < 3; jj++)
 									{
-										fscanf_s(fin_matrix, "%lf", &local_SLAE[id_elem].A[I][J].val[ii][jj]);
+										
+										if (fscanf_s(fin_matrix, "%lf", &local_SLAE[id_elem].A[I][J].val[ii][jj]) == EOF
+											|| local_SLAE[id_elem].A[I][J].val[ii][jj] != local_SLAE[id_elem].A[I][J].val[ii][jj])
+										{
+											printf_s("\nERROR in file: %s", fin_matrix);
+											int _a;
+											scanf_s("%d", &_a);
+											fclose(fin_matrix);
+											goto solve_matrix;
+										}
 									}
 								}
 							}
@@ -868,6 +885,16 @@ namespace MsFEM {
 					Point<double> vertex = solver_grid.GetCoordinateViaID(solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
 					Point<bool> is_take;
 					Point<double> boundary_value = solver_grid.boundary_vertexes[id_vertex].boundary_value(is_take);
+
+					//
+					/*boundary_value.x = 0;
+					boundary_value.y = 0;
+					Point<double> H = solver_grid.GetMaxCoordinate() - solver_grid.GetMinCoordinate();
+					boundary_value.z = 0.01 * (solver_grid.GetCoordinateViaID(global_id).z - H.z / 2.0);
+					is_take.x = true;
+					is_take.y = true;
+					is_take.z = true;*/
+					//
 
 					if (global_id < global_SLAE.GetMatrixSize())
 					{

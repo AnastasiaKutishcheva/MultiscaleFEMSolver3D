@@ -211,6 +211,13 @@ public:
 			alpha_termal[1] = al;
 			alpha_termal[2] = al;
 		};
+		double GetLongitudinalWaveVelocity_Vp(double rpho)
+		{
+			double lambda = this->epsilon * this->v / ((1 + this->v) * (1 - 2 * this->v));
+			double mu = this->epsilon / (2 * (1 + this->v));
+			double velocity = sqrt((lambda + 2 * mu) / rpho);
+			return velocity;
+		}
 
 		void GetLameCoefficients(double& lambda, double& mu)
 		{

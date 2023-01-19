@@ -3323,7 +3323,7 @@ namespace MultiXFEM {
 				std::vector<std::vector<int>> down_columns(this->GetDOFsCount()), up_columns(this->GetDOFsCount());
 				for (int id_elem = 0; id_elem < this->GetElementsCount(); id_elem++)
 				{
-					if(id_elem % 100 == 0)
+					if(id_elem % 1000 == 0)
 						printf_s("Work with element[%d]\r", id_elem);
 					auto element = this->GetElement(id_elem);
 					for (int i = 0; i < element->GetDOFsCount(); i++)
@@ -3349,7 +3349,7 @@ namespace MultiXFEM {
 				printf_s("                                  \r");
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
-					if (id_string % 1 == 0)
+					if (id_string % 1000 == 0)
 						printf_s("Work with row[%d]\r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);

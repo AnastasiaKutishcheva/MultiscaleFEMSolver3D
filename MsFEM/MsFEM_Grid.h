@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <vector>
 #include <iostream>
+#include <Windows.h>
 
 namespace MsFEM {
 	class FiniteElement_forMech_Poly :
@@ -3583,7 +3584,7 @@ namespace MsFEM {
 				std::vector<std::vector<int>> down_columns(this->GetDOFsCount()), up_columns(this->GetDOFsCount());
 				for (int id_elem = 0; id_elem < this->GetElementsCount(); id_elem++)
 				{
-					if (id_elem % 100 == 0)
+					if (id_elem % 1000 == 0)
 						printf_s("Work with element[%d]\r", id_elem);
 					auto element = this->GetElement(id_elem);
 					for (int i = 0; i < element->GetDOFsCount(); i++)
@@ -3609,7 +3610,7 @@ namespace MsFEM {
 				printf_s("                                  \r");
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
-					if (id_string % 1 == 0)
+					if (id_string % 1000 == 0)
 						printf_s("Work with row[%d]\r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);
@@ -3810,7 +3811,8 @@ namespace MsFEM {
 		FEM::Grid_forMech self_grid;
 		std::vector< std::vector<Point<double>>> self_basis_functions;
 
-		char self_direction[1000];
+		char self_mesh_direction[1000];
+		char self_tmp_direction[1000];
 
 		FiniteElement_forMech_Poly_Order1() { return; };
 		~FiniteElement_forMech_Poly_Order1() { return; };
@@ -4790,19 +4792,23 @@ namespace MsFEM {
 				printf_s("Error: MultiXFEM/MultiXFEM_Grid.h/void CreateTopology()\n");
 			}
 		}
-		void CreateFunctionalSpaces(char* fine_mesh_dir)
+		void CreateFunctionalSpaces(char* fine_mesh_dir, char* tmp_result_dir)
 		{
 			try {
 				//create basis functions
 				this->SetDOFsCount((int)this->vertexes.size());
 				omp_set_num_threads(math::NUM_THREADS);
 #pragma omp parallel for schedule(dynamic)
-				for (int id_element = 0; id_element < this->GetElementsCount(); id_element++)
+				for (int id_element = this->GetElementsCount()-1; id_element >= 0; id_element--)
 				{
 					printf_s("Create basis functions for element[%d]                  \r", id_element);
 
 					auto element = this->GetElement(id_element);
-					sprintf_s(element->self_direction, sizeof(element->self_direction), "%s/Elem_%d/SubElem_0", fine_mesh_dir, id_element);
+					sprintf_s(element->self_mesh_direction, sizeof(element->self_mesh_direction), "%s/Elem_%d/SubElem_0", fine_mesh_dir, id_element);
+					sprintf_s(element->self_tmp_direction, sizeof(element->self_tmp_direction), "%s/Elem_%d", tmp_result_dir, id_element);
+					wchar_t _tmp_wc[1000];
+					math::Char_To_Wchar_t(element->self_tmp_direction, _tmp_wc, 1000);
+					CreateDirectory((LPCTSTR)_tmp_wc, NULL);
 
 					std::vector<int> id_self_edges;
 					{
@@ -4828,7 +4834,7 @@ namespace MsFEM {
 
 					//read sub meshes
 					math::SimpleGrid base_grid_simple;
-					if (!base_grid_simple.ReadFromNVTR(element->self_direction, 4))
+					if (!base_grid_simple.ReadFromNVTR(element->self_mesh_direction, 4))
 					{
 						printf_s("\nThere is a problem with self-NVTR for element[%d]\n", id_element);
 						int a;
@@ -4840,7 +4846,7 @@ namespace MsFEM {
 						for (int id_face_local = 0; id_face_local < element->GetLowerElementCount(); id_face_local++)
 						{
 							char name_in_file[1000];
-							sprintf_s(name_in_file, "%s/Face_id%d.dat", element->self_direction, id_face_local);
+							sprintf_s(name_in_file, "%s/Face_id%d.dat", element->self_mesh_direction, id_face_local);
 							faces_grid_simple[id_face_local].ReadFromSalomeDat(name_in_file, 2, this->GetVertexCount());
 						}
 
@@ -4953,7 +4959,7 @@ namespace MsFEM {
 					{
 						FILE* fin;
 						char name_in[2000];
-						sprintf_s(name_in, "%s/BasisFunction_%d.txt", element->self_direction, id_bf);
+						sprintf_s(name_in, "%s/BasisFunction_%d.txt", element->self_tmp_direction, id_bf);
 						fopen_s(&fin, name_in, "r");
 						if (fin == NULL)
 						{
@@ -4987,18 +4993,31 @@ namespace MsFEM {
 
 						element->self_grid.Initialization(base_grid_simple, first_boundaries_empty, second_boundary_empty);
 
-						for (int id_bf = 0; id_bf < element->GetDOFsCount(); id_bf++)
+						for (int id_bf = 0; id_bf < element->GetDOFsCount() && !is_solve; id_bf++)
 						{
 							FILE* fin;
 							char name_in[1000];
-							sprintf_s(name_in, "%s/BasisFunction_%d.txt", element->self_direction, id_bf);
+							sprintf_s(name_in, "%s/BasisFunction_%d.txt", element->self_tmp_direction, id_bf);
 							fopen_s(&fin, name_in, "r");
 
 							element->self_basis_functions[id_bf].resize(element->self_grid.GetDOFsCount());
 
 							for (int i = 0; i < element->self_grid.GetDOFsCount(); i++)
 							{
-								fscanf_s(fin, "%lf %lf %lf", &element->self_basis_functions[id_bf][i].x, &element->self_basis_functions[id_bf][i].y, &element->self_basis_functions[id_bf][i].z);
+								if (fscanf_s(fin, "%lf %lf %lf",
+									&element->self_basis_functions[id_bf][i].x,
+									&element->self_basis_functions[id_bf][i].y,
+									&element->self_basis_functions[id_bf][i].z) == EOF 
+									|| element->self_basis_functions[id_bf][i].x != element->self_basis_functions[id_bf][i].x
+									|| element->self_basis_functions[id_bf][i].y != element->self_basis_functions[id_bf][i].y
+									|| element->self_basis_functions[id_bf][i].z != element->self_basis_functions[id_bf][i].z)
+								{
+									printf_s("\nERROR in file: %s", name_in);
+									int _a;
+									scanf_s("%d", &_a);
+									is_solve = true;
+									break;
+								}
 							}
 
 							fclose(fin);
@@ -5104,7 +5123,7 @@ namespace MsFEM {
 									first_boundaries, //input
 									second_boundary_empty, //input
 									sourse,
-									element->self_direction, //output
+									element->self_mesh_direction, //output
 									solver_grid_edges[id_edge_local], //output
 									Solution_edges[id_edge_local][0], //output
 									Base_stiffness_matrix //output
@@ -5161,7 +5180,7 @@ namespace MsFEM {
 									first_boundaries, //input
 									second_boundary_empty, //input
 									sourse,
-									element->self_direction, //output
+									element->self_mesh_direction, //output
 									solver_grid_edges[id_edge_local], //output
 									Solution_edges[id_edge_local][1], //output
 									Base_stiffness_matrix //output
@@ -5297,7 +5316,7 @@ namespace MsFEM {
 									first_boundaries, //input
 									second_boundary_empty, //input
 									sourse,
-									element->self_direction, //output
+									element->self_mesh_direction, //output
 									solver_grid_faces[id_face_local], //output
 									Solution_faces[id_face_local][id_bf], //output
 									Base_stiffness_matrix //output
@@ -5309,7 +5328,7 @@ namespace MsFEM {
 
 									FILE* fout_tech;
 									char name_u_tech[5000];
-									sprintf_s(name_u_tech, "%s/Face_%d(global%d)_linear_bf%d(%d).dat", element->self_direction, id_face_local, id_face, id_bf, target_vertex_global);
+									sprintf_s(name_u_tech, "%s/Face_%d(global%d)_linear_bf%d(%d).dat", element->self_tmp_direction, id_face_local, id_face, id_bf, target_vertex_global);
 									fopen_s(&fout_tech, name_u_tech, "w");
 									char name_in_file[1000];
 									sprintf_s(name_in_file, "Face_%d(global%d)_linear_bf%d(%d)", id_face_local, id_face, id_bf, target_vertex_global);
@@ -5480,7 +5499,7 @@ namespace MsFEM {
 									first_boundaries, //input
 									second_boundary_empty, //input
 									sourse,
-									element->self_direction, //output
+									element->self_mesh_direction, //output
 									element->self_grid, //output
 									element->self_basis_functions[id_bf], //output
 									Base_stiffness_matrix //output
@@ -5491,7 +5510,7 @@ namespace MsFEM {
 
 									FILE* fout_tech;
 									char name_u_tech[1000];
-									sprintf_s(name_u_tech, "%s/Volume_linear_bf%d.dat", element->self_direction, id_bf);
+									sprintf_s(name_u_tech, "%s/Volume_linear_bf%d.dat", element->self_tmp_direction, id_bf);
 									fopen_s(&fout_tech, name_u_tech, "w");
 									char name_in_file[1000];
 									sprintf_s(name_in_file, "Volume_linear_bf%d", id_bf);
@@ -5538,7 +5557,7 @@ namespace MsFEM {
 						{
 							FILE* fout;
 							char name_out[1000];
-							sprintf_s(name_out, "%s/BasisFunction_%d.txt", element->self_direction, id_bf);
+							sprintf_s(name_out, "%s/BasisFunction_%d.txt", element->self_tmp_direction, id_bf);
 							fopen_s(&fout, name_out, "w");
 							for (int i = 0; i < element->self_basis_functions[id_bf].size(); i++)
 							{
@@ -5550,7 +5569,7 @@ namespace MsFEM {
 							if (/*element->GetSelfGlobalId() == 0 || element->GetSelfGlobalId() == 1*/id_bf == 0) {
 								FILE* fout_tech;
 								char name_u_tech[5000];
-								sprintf_s(name_u_tech, "%s/Techplot_BasisFunction_%d(%d).dat", element->self_direction, id_bf, element->GetIdNode(id_bf));
+								sprintf_s(name_u_tech, "%s/Techplot_BasisFunction_%d(%d).dat", element->self_tmp_direction, id_bf, element->GetIdNode(id_bf));
 								fopen_s(&fout_tech, name_u_tech, "w");
 								char name_in_file[1000];
 								sprintf_s(name_in_file, "BasisFunction_%d(%d)", id_bf, element->GetIdNode(id_bf));
@@ -5765,7 +5784,12 @@ namespace MsFEM {
 			}
 		}
 		template <typename Dirichlet, typename Neumann>
-		void Initialization(math::SimpleGrid& base_grid, std::vector<Dirichlet>& first_boundary, std::vector<Neumann>& second_boundary, char* fine_mesh_dir)
+		void Initialization(
+			math::SimpleGrid& base_grid, 
+			std::vector<Dirichlet>& first_boundary, 
+			std::vector<Neumann>& second_boundary, 
+			char* fine_mesh_dir,
+			char* tmp_dir)
 		{
 			try {
 
@@ -5808,7 +5832,7 @@ namespace MsFEM {
 				CreateTopology();
 
 				//create functional spaces
-				CreateFunctionalSpaces(fine_mesh_dir);
+				CreateFunctionalSpaces(fine_mesh_dir, tmp_dir);
 
 				CreateBoundaryConditions(first_boundary, second_boundary);
 			}
@@ -5827,7 +5851,7 @@ namespace MsFEM {
 				std::vector<std::vector<int>> down_columns(this->GetDOFsCount()), up_columns(this->GetDOFsCount());
 				for (int id_elem = 0; id_elem < this->GetElementsCount(); id_elem++)
 				{
-					if (id_elem % 100 == 0)
+					if (id_elem % 1000 == 0)
 						printf_s("Work with element[%d]\r", id_elem);
 					auto element = this->GetElement(id_elem);
 					for (int i = 0; i < element->GetDOFsCount(); i++)
@@ -5853,7 +5877,7 @@ namespace MsFEM {
 				printf_s("                                  \r");
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
-					if (id_string % 1 == 0)
+					if (id_string % 1000 == 0)
 						printf_s("Work with row[%d]\r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);

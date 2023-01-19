@@ -698,7 +698,7 @@ namespace FEM{
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
 					if (id_string % 1000 == 0)
-						printf_s("Work with row[%d]\r", id_string);
+						printf_s("Work with row[%d]                                  \r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);
 					math::MakeQuickSort(tmp_up_columns[id_string], 0, (int)tmp_up_columns[id_string].size() - 1);
@@ -1864,7 +1864,7 @@ namespace FEM{
 				std::vector<std::vector<int>> down_columns(this->GetDOFsCount()), up_columns(this->GetDOFsCount());
 				for (int id_elem = 0; id_elem < this->GetElementsCount(); id_elem++)
 				{
-					if (id_elem % 100 == 0)
+					if (id_elem % 1000 == 0)
 						printf_s("Work with element[%d]\r", id_elem);
 					auto element = this->GetElement(id_elem);
 					for (int i = 0; i < element->GetDOFsCount(); i++)
@@ -1891,7 +1891,7 @@ namespace FEM{
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
 					if (id_string % 1000 == 0)
-						printf_s("Work with row[%d]\r", id_string);
+						printf_s("Work with row[%d]                                         \r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);
 					math::MakeQuickSort(tmp_up_columns[id_string], 0, (int)tmp_up_columns[id_string].size() - 1);
@@ -2456,6 +2456,66 @@ namespace FEM{
 			catch (const std::exception&)
 			{
 				printf_s("Error: XFEM/MultiXFEM_Grid.h/void SolveLocalMatrix(DenseMatrix<Tensor2Rank3D> &local_matix, std::function<std::vector<std::vector<double>>(Point)> &koefD)\n");
+			}
+		}
+		void SolveMassMatrix(DenseMatrix<Tensor2Rank3D, Point<double>>& local_matix,
+			std::function<double(Point<double>)>& koef_forMassMatrix)
+		{
+			try {
+				local_matix.SetSize(this->GetDOFsCount());
+
+				this->SetIntegrationLaw(4);
+
+				for (int _bf_local_id_I = 0; _bf_local_id_I < this->GetDOFsCount(); _bf_local_id_I++)
+				{
+					Tensor2Rank3D summ;
+					Point<double> summ_vect;
+					auto D_basis_function_I = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_I);
+					auto basis_function_I = this->GetBasisFunctionInLocalID(_bf_local_id_I);
+
+					for (int _bf_local_id_J = _bf_local_id_I; _bf_local_id_J < this->GetDOFsCount(); _bf_local_id_J++)
+					{
+						auto D_basis_function_J = this->GetDerivativeOfBasisFunctionInLocalID(_bf_local_id_J);
+						auto basis_function_J = this->GetBasisFunctionInLocalID(_bf_local_id_J);
+
+						Point<double> o = this->GetWeightCentr();
+						auto val = (*this->GetDerivativeOfBasisFunctionInLocalID(0))(o);
+
+						std::function<Tensor2Rank3D(Point<double>)> MassMatrix_simple = [&_bf_local_id_I, &_bf_local_id_J, &koef_forMassMatrix, &basis_function_I, &basis_function_J]
+						(Point<double> X) -> Tensor2Rank3D
+						{
+							Tensor2Rank3D result;
+
+							Point<double> BF_I_inX = (*basis_function_I)(X);
+							Point<double> BF_J_inX = (*basis_function_J)(X);
+
+							result.val[0][0] = BF_I_inX.x * BF_J_inX.x;
+							result.val[0][1] = 0;
+							result.val[0][2] = 0;
+
+							result.val[1][0] = 0;
+							result.val[1][1] = BF_I_inX.y * BF_J_inX.y;
+							result.val[1][2] = 0;
+
+							result.val[2][0] = 0;
+							result.val[2][1] = 0;
+							result.val[2][2] = BF_I_inX.z * BF_J_inX.z;
+
+							result = result * koef_forMassMatrix(X);
+							return result;
+						};
+
+						//double V = this->GetVolume();
+						local_matix.A[_bf_local_id_I][_bf_local_id_J] = this->SolveIntegral(MassMatrix_simple);
+						local_matix.A[_bf_local_id_J][_bf_local_id_I] = local_matix.A[_bf_local_id_I][_bf_local_id_J].T();
+
+						summ += local_matix.A[_bf_local_id_I][_bf_local_id_J];
+					}
+				}
+			}
+			catch (const std::exception&)
+			{
+				printf_s("Error: FEM/FEM_Grid.h/SolveMassMatrix\n");
 			}
 		}
 		void SolveRightSide(std::vector<Point<double>> &local_right_side, std::function<Point<double>(Point<double> X)>& sourse)
@@ -3469,6 +3529,93 @@ namespace FEM{
 			}
 			fclose(fdat);
 		}
+
+		void printTecPlot3D_DiffDomains(
+			FILE* fdat, 
+			std::vector<std::vector<double>>& value, 
+			std::vector<std::vector<char>> name_value, 
+			char* name_zone, 
+			double curr_time)
+		{
+			fprintf_s(fdat, "TITLE     = \"numerical\"\n");
+			fprintf_s(fdat, "VARIABLES = \"x\"\n \"y\"\n \"z\"\n");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " \"");
+				for (int j = 0; j < value[i].size(); j++)
+				{
+					if (name_value[i][j] != '\0')
+					{
+						fprintf_s(fdat, "%c", name_value[i][j]);
+					}
+					else
+					{
+						break;
+					}
+				}
+				fprintf_s(fdat, "\"\n");
+			}
+
+			std::vector<int> in_domain(this->GetDomainsCount());
+			for (int i = 0; i < this->GetElementsCount(); i++)
+			{
+				in_domain[this->GetElement(i)->GetIdDomain()]++;
+			}
+
+			for (int id_domain = 0; id_domain < this->GetDomainsCount(); id_domain++)
+			{
+				if (in_domain[id_domain] != 0)
+				{
+					fprintf_s(fdat, "ZONE T=\"%s_%d\"\n", name_zone, id_domain);
+					fprintf_s(fdat, "SOLUTIONTIME = %.10e\n", curr_time);
+					fprintf_s(fdat, " N=%d,  E=%d, F=FEBLOCK ET=Tetrahedron \n", this->GetVertexCount(), in_domain[id_domain]);
+					fprintf_s(fdat, " VARLOCATION=(NODAL NODAL NODAL");
+					for (int i = 0; i < value.size(); i++)
+					{
+						if (value[i].size() == this->GetElementsCount()) fprintf_s(fdat, " CELLCENTERED");
+						else fprintf_s(fdat, " NODAL");
+					}
+					fprintf_s(fdat, ")\n");
+
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).x);
+					fprintf_s(fdat, "\n");
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).y);
+					fprintf_s(fdat, "\n");
+					for (int i = 0; i < this->GetVertexCount(); i++)
+						fprintf_s(fdat, "%.10e\n", this->GetCoordinateViaID(i).z);
+					fprintf_s(fdat, "\n");
+
+					for (int i = 0; i < value.size(); i++)
+					{
+						if (value[i].size() == this->GetElementsCount())
+						{
+							for (int j = 0; j < this->GetElementsCount(); j++)
+								if (this->GetElement(j)->GetIdDomain() == id_domain)
+									fprintf_s(fdat, "%.10e\n", value[i][j]);
+						}
+						else {
+							for (int j = 0; j < value[i].size(); j++)
+								fprintf_s(fdat, "%.10e\n", value[i][j]);
+						}
+						fprintf_s(fdat, "\n");
+					}
+
+					for (int i = 0; i < this->GetElementsCount(); i++)
+					{
+						if (this->GetElement(i)->GetIdDomain() == id_domain)
+						{
+							for (int j = 0; j < this->GetElement(i)->GetNodesCount(); j++)
+								fprintf_s(fdat, "%d ", this->GetElement(i)->GetIdNode(j) + 1);
+						}
+						fprintf_s(fdat, "\n");
+					}
+				}
+			}
+			fclose(fdat);
+		}
+
 
 		~Grid_forMech()
 		{
@@ -6453,8 +6600,8 @@ namespace FEM{
 				std::vector<std::vector<int>> down_columns(this->GetDOFsCount()), up_columns(this->GetDOFsCount());
 				for (int id_elem = 0; id_elem < this->GetElementsCount(); id_elem++)
 				{
-					if (id_elem % 100 == 0)
-						printf_s("Work with element[%d]\r", id_elem);
+					if (id_elem % 1000 == 0)
+						printf_s("Work with element[%d]                                       \r", id_elem);
 					auto element = this->GetElement(id_elem);
 					for (int i = 0; i < element->GetDOFsCount(); i++)
 					{
@@ -6479,8 +6626,8 @@ namespace FEM{
 				printf_s("                                  \r");
 				for (int id_string = 0; id_string < tmp_down_columns.size(); id_string++)
 				{
-					if (id_string % 1 == 0)
-						printf_s("Work with row[%d]\r", id_string);
+					if (id_string % 1000 == 0)
+						printf_s("Work with row[%d]                                           \r", id_string);
 
 					math::MakeQuickSort(tmp_down_columns[id_string], 0, (int)tmp_down_columns[id_string].size() - 1);
 					math::MakeQuickSort(tmp_up_columns[id_string], 0, (int)tmp_up_columns[id_string].size() - 1);

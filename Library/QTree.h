@@ -14,7 +14,7 @@ private:
 	{
 		int maxk = (int)log(grid.GetElementsCount())*10;
 		if (maxk == 0) maxk = grid.GetElementsCount();
-		if (this->level < 20 && box->elems.size() > maxk)
+		if (this->level < 10 && box->elems.size() > maxk)
 		{
 			Point<double> Center = (box->top + box->bottom) / 2;
 			int next_level = this->level + 1;

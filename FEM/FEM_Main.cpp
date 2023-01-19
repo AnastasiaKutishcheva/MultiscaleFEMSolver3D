@@ -2825,7 +2825,6 @@ void Solve_ElastodynamicsProblem_Explicit_v2()
 
 	bool is_STATIONARY = true;
 
-
 	//char properties_file[1000] = { "E:/+cyl/800el/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/67k/param.txt" };
 	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/638k/param.txt" };
@@ -4319,7 +4318,7 @@ void Solve_ElastodynamicsProblem_SelfDeform()
 		math::MakeCopyVector_A_into_B(U_curr, U_prev);
 
 		//обновляем сетку
-		if(true) {
+		if(false) {
 			solver_grid.MoveCoordinates(U_curr);
 			for (int i = 0; i < solver_grid.GetElementsCount(); i++)
 			{
@@ -4413,9 +4412,10 @@ void Solve_ElastodynamicsProblem_SelfDeform()
 				value[5][i] = U_curr[i].z;
 
 			}
-			//solver_grid.MoveCoordinates(Solution);
-
+			
+			solver_grid.MoveCoordinates(Solution);
 			solver_grid.printTecPlot3D_DiffDomains(fout_tech, value, name_value, name_in_file);
+			solver_grid.ReMoveCoordinates(Solution);
 			fclose(fout_tech);
 		}
 		printf_s("\t complite\n");

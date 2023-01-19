@@ -3,6 +3,7 @@
 #include <functional>
 //#include "DenseMatrix.h"
 #include "Tensor.h"
+#include "omp.h"
 
 #define M_PI 3.14159265358979323846
 #define mu0 4*M_PI*1E-7
@@ -656,6 +657,7 @@ namespace math
 
 				for (int id_type = 0; id_type < boundary_faces.size(); id_type++)
 				{
+					omp_set_num_threads(NUM_THREADS);
 #pragma omp parallel for schedule(dynamic)
 					for (int id_triang = 0; id_triang < boundary_faces[id_type].size(); id_triang++)
 					{
@@ -1195,7 +1197,82 @@ namespace math
 			{
 				for (int j = 0; j < this->nvtr.size(); j++)
 				{
-					fprintf_s(fdat, "%.10lf\n", value[i][j]);
+					fprintf_s(fdat, "%.10e\n", value[i][j]);
+				}
+				fprintf_s(fdat, "\n");
+			}
+
+			for (int i = 0; i < this->nvtr.size(); i++)
+			{
+				for (int j = 0; j < this->nvtr[i].size(); j++)
+					fprintf_s(fdat, "%d ", this->nvtr[i][j] + 1);
+
+				fprintf_s(fdat, "\n");
+			}
+
+			fclose(fdat);
+		}
+		void printTecPlot3D(
+			FILE* fdat, 
+			std::vector<std::vector<double>>& value, 
+			std::vector<std::vector<char>> name_value, 
+			char* name_zone,
+			double curr_time)
+		{
+			int DEL_domain = 10;
+			fprintf_s(fdat, "TITLE     = \"numerical\"\n");
+			fprintf_s(fdat, "VARIABLES = \"x\"\n \"y\"\n \"z\"\n");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " \"");
+				for (int j = 0; j < value[i].size(); j++)
+				{
+					if (name_value[i][j] != '\0')
+					{
+						fprintf_s(fdat, "%c", name_value[i][j]);
+					}
+					else
+					{
+						break;
+					}
+				}
+				fprintf_s(fdat, "\"\n");
+			}
+
+			int num_elem = this->nvtr.size();
+			fprintf_s(fdat, "ZONE T=\"%s\"\n", name_zone);
+			fprintf_s(fdat, "SOLUTIONTIME = %.10e\n", curr_time);
+			fprintf_s(fdat, " N=%d,  E=%d, F=FEBLOCK ET=", this->xyz.size(), num_elem);
+			switch (this->nvtr[0].size())
+			{
+			case 4: fprintf_s(fdat, "Tetrahedron "); break;
+			case 3: fprintf_s(fdat, "Triangle "); break;
+			default:
+				break;
+			}
+			fprintf_s(fdat, "\n");
+			fprintf_s(fdat, " VARLOCATION=(NODAL NODAL NODAL");
+			for (int i = 0; i < value.size(); i++)
+			{
+				fprintf_s(fdat, " CELLCENTERED");
+			}
+			fprintf_s(fdat, ")\n");
+
+			for (int i = 0; i < this->xyz.size(); i++)
+				fprintf_s(fdat, "%.10e\n", this->xyz[i].x);
+			fprintf_s(fdat, "\n");
+			for (int i = 0; i < this->xyz.size(); i++)
+				fprintf_s(fdat, "%.10e\n", this->xyz[i].y);
+			fprintf_s(fdat, "\n");
+			for (int i = 0; i < this->xyz.size(); i++)
+				fprintf_s(fdat, "%.10e\n", this->xyz[i].z);
+			fprintf_s(fdat, "\n");
+
+			for (int i = 0; i < value.size(); i++)
+			{
+				for (int j = 0; j < this->nvtr.size(); j++)
+				{
+					fprintf_s(fdat, "%.10e\n", value[i][j]);
 				}
 				fprintf_s(fdat, "\n");
 			}

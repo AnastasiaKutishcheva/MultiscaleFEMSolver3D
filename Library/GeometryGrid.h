@@ -122,6 +122,24 @@ public:
 			this->elements[i].SolveAlphaMatrix();
 		}
 	}
+	void ReMoveCoordinates(std::vector<Point<double>>& move_vectors)
+	{
+		for (int i = 0; i < this->xyz.size(); i++)
+		{
+			this->xyz[i] -= move_vectors[i];
+		}
+		this->CreateXYZline();
+		this->CreateQTree();
+
+		for (int i = 0; i < this->GetElementsCount(); i++)
+		{
+			for (int j = 0; j < this->elements[i].GetNodesCount(); j++)
+			{
+				this->elements[i].SetNode(j, &(this->xyz[this->elements[i].GetIdNode(j)]));
+			}
+			this->elements[i].SolveAlphaMatrix();
+		}
+	}
 
 	
 	double GetFullVolumeByPart()
