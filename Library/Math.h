@@ -1750,6 +1750,19 @@ namespace math
 			}
 		}
 	}
+	void MakeCopyVector_A_into_B(std::vector<Point<double>>& A, std::vector<double>& B)
+	{
+		if (A.size() != 0)
+		{
+			B.resize(A.size() * 3);
+			for (int i = 0; i < A.size(); i++)
+			{
+				B[i * 3 + 0] = A[i].x;
+				B[i * 3 + 1] = A[i].y;
+				B[i * 3 + 2] = A[i].z;
+			}
+		}
+	}
 
 	template <typename T1, typename T2>
 	void InitializationVector(std::vector<T1>& A, T2 b)

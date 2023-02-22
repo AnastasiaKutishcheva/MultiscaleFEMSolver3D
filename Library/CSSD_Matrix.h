@@ -1319,6 +1319,103 @@ public:
 
 		return sqrt(tmp1 / tmp2);
 	}
+	double MSG_PreconditioningSSOR(std::vector<double> &RightSide, std::vector<double> &Result, int maxiter, double E, CSSD_Matrix<double, double>& Precondor)
+	{
+		int k, n_matr = this->GetMatrixSize();
+		std::vector<double> r(n_matr); //невязка
+		std::vector<double> z(n_matr); //невязка предобусловленной СЛАУ
+		std::vector<double> p(n_matr);
+		std::vector<double> temp_mult(n_matr);
+
+		//подготовка к итерациям
+		k = 0;
+		this->MultiplicationMatrixVector(Result, temp_mult);
+		for (int i = 0; i < n_matr; i++)
+		{
+			r[i] = RightSide[i] - temp_mult[i];
+			if (r[i] != r[i])
+			{
+				printf("r[%d] = INF\n", i);
+				//Sleep(10000);
+			}
+			if (RightSide[i] != RightSide[i] && this->print_logs)
+			{
+				printf("RightSide[%d] = INF\n", i);
+
+				///Sleep(10000);
+			}
+		}
+		//	CSSD_Matrix<double, double> Precondor;
+			//Precondor.PrecondorSSOR(0.75, this);
+		Precondor.SolvePrecondorSSOR_SLAE(this->Diag, z, r);
+		math::MakeCopyVector_A_into_B(z, p);
+
+		//основные итерации
+		double alpha, betta, scal_r_z;
+		scal_r_z = math::MakeInnerProduct(r, z);
+		for (k = 1; k < maxiter && sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(RightSide, RightSide)) > E; k++)
+		{
+			//temp_mult = A*p
+			this->MultiplicationMatrixVector(p, temp_mult);
+			//alpha = (r,z)/(A*p,p)
+			alpha = scal_r_z / math::MakeInnerProduct(temp_mult, p);
+			//x(+1) = x + alpha*p
+			//r(+1) = r - alpha*p
+			for (int i = 0; i < n_matr; i++)
+			{
+				Result[i] += alpha * p[i];
+				r[i] -= alpha * temp_mult[i];
+			}
+			//z(+1) = M^(-1)*r(+1)
+			if (!(k % 10) || k == 1)
+				Precondor.SolvePrecondorSSOR_SLAE(this->Diag, z, r);
+			else
+				Precondor.SolvePrecondorSSOR_SLAE(this->Diag, z, r);
+			//betta = (r(+1),z(+1))/(r,z)
+			betta = math::MakeInnerProduct(r, z) / scal_r_z;
+			for (int i = 0; i < n_matr; i++)
+			{
+				p[i] = z[i] + betta * p[i];
+			}
+
+			//готовим на следующий шаг
+			scal_r_z = math::MakeInnerProduct(r, z);
+			if (this->print_logs && (!(k % 100) || k == 1))
+			{
+				printf("\tMSG_SSOR\t>\t%d\t-\t%.5e\n", k, sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(RightSide, RightSide)));
+			}
+
+			//if (sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(RightSide, RightSide)) <= E)
+			//{
+			//	//считаем настоящую невязку
+			//	this->MultiplicationMatrixVector(Result, temp_mult);
+			//	double tmp1 = 0, tmp2 = 0;
+			//	for (int i = 0; i < Result.size(); i++)
+			//	{
+			//		tmp1 += (temp_mult[i] - RightSide[i]) * (temp_mult[i] - RightSide[i]);
+			//		tmp2 += (RightSide[i]) * (RightSide[i]);
+			//	}
+			//	if (sqrt(tmp1 / tmp2) <= E) break;
+			//	
+			//}
+		}
+
+		//считаем настоящую невязку
+		this->MultiplicationMatrixVector(Result, temp_mult);
+		double tmp1 = 0, tmp2 = 0;
+		for (int i = 0; i < Result.size(); i++)
+		{
+			tmp1 += (temp_mult[i] - RightSide[i]) * (temp_mult[i] - RightSide[i]);
+			tmp2 += (RightSide[i]) * (RightSide[i]);
+		}
+		if (this->print_logs)
+			printf("\tMSG_SSOR\t>\t%d\t-\t%.5e (%.5e resolve residual)\n",
+				k,
+				sqrt(math::MakeInnerProduct(r, r) / math::MakeInnerProduct(RightSide, RightSide)),
+				sqrt(tmp1 / tmp2));
+
+		return sqrt(tmp1 / tmp2);
+	}
 	double MSG(int maxiter, double E)
 	{
 		//maxiter *= 10;
