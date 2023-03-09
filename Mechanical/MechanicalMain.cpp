@@ -4966,6 +4966,9 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 			math::ReadNonEmptyLine_forNumbers(f_properties, line);
 			int id_boundary = math::ParserCharToInt(line[0]);
 			
+			if (line[0] == '-')
+				id_boundary = math::ParserCharToInt(line[1]) * -1;
+
 			id_boundaries[i] = abs(id_boundary);
 			int jj = 0;
 			int curr_i = 0;
@@ -4994,13 +4997,13 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 					if (id_boundary < 0)
 					{
 						gauss_source.is_used = true;
-						gauss_source.power = val[0];
-						gauss_source.direction.x = val[1];
-						gauss_source.direction.y = val[2];
-						gauss_source.direction.z = val[3];
-						gauss_source.degree = (int)val[4];
-						gauss_source.t0 = val[5];
-						gauss_source.tay = val[6];
+						gauss_source.power = val[1];
+						gauss_source.direction.x = val[2];
+						gauss_source.direction.y = val[3];
+						gauss_source.direction.z = val[4];
+						gauss_source.degree = (int)val[5];
+						gauss_source.t0 = val[6];
+						gauss_source.tay = val[7];
 						gauss_source.target_boundary = i;
 					}
 
@@ -5139,7 +5142,9 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 			{
 				centr += geo_grid.xyz[geo_grid.nvtr[i][j]] / geo_grid.nvtr[i].size();
 			}
-			if (crack_bottom < centr && centr < crack_top)
+			if (crack_bottom.x < centr.x && centr.x < crack_top.x &&
+				crack_bottom.y < centr.y && centr.y < crack_top.y &&
+				crack_bottom.z < centr.z && centr.z < crack_top.z)
 			{
 				geo_grid.nvkat[i] = N_domain - 1;
 			}
@@ -5302,17 +5307,17 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 				if (is_take.z == true) enter_boundary(2, MassMatrix);
 			}
 		}
-
-		//переводим матрицу массы в действительную
-		math::MakeCopyMatrix_A_into_B(MassMatrix, MassMatrix_doubleSLAE);
 		for (int i = 0; i < MassMatrix.Diag.size(); i++)
 		{
 			if (abs(MassMatrix.Diag[i].val[0][0]) < 1e-12 || abs(MassMatrix.Diag[i].val[1][1]) < 1e-12 || abs(MassMatrix.Diag[i].val[2][2]) < 1e-12)
 			{
-				MassMatrix.Diag[i].InitializationAs0();
+				MassMatrix.Diag[i].InitializationAsI();
 				clear_vertexes.push_back(i);
 			}
 		}
+
+		//переводим матрицу массы в действительную
+		math::MakeCopyMatrix_A_into_B(MassMatrix, MassMatrix_doubleSLAE);
 		Precond.PrecondorSSOR(0.75, MassMatrix_doubleSLAE);
 	}
 
@@ -5373,6 +5378,8 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 		printf_s("\n================= Start solution of %d STEP (time = %.2e) ================\n", id_STEP, TIME_curr);
 		bool is_print_result = false;
 		char result_directory[1000];
+		char result_directory_XZ[1000];
+		char result_directory_YZ[1000];
 		if (id_STEP % step_for_out == 0)
 		{
 			is_print_result = true;
@@ -5380,6 +5387,14 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 			//sprintf_s(result_directory, sizeof(result_directory), "%s/STEP_%d_t=%.2e", base_result_directory, id_STEP, TIME_curr);
 			wchar_t _tmp_wc[1000];
 			math::Char_To_Wchar_t(result_directory, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+
+			
+			sprintf_s(result_directory_XZ, sizeof(result_directory_XZ), "%s/Plane_XZ", base_result_directory);
+			math::Char_To_Wchar_t(result_directory_XZ, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+			sprintf_s(result_directory_YZ, sizeof(result_directory_XZ), "%s/Plane_YZ", base_result_directory);
+			math::Char_To_Wchar_t(result_directory_YZ, _tmp_wc, 1000);
 			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
 		}
 
@@ -5811,7 +5826,7 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 
 			FILE* fout_tech;
 			char name_u_tech[5000];
-			sprintf_s(name_u_tech, "%s/U_plane_YZ_s%d_t%.2e.dat", result_directory, id_STEP, TIME_curr);
+			sprintf_s(name_u_tech, "%s/U_plane_YZ_s%d_t%.2e.dat", result_directory_YZ, id_STEP, TIME_curr);
 			fopen_s(&fout_tech, name_u_tech, "w");
 			char name_in_file[1000];
 			sprintf_s(name_in_file, "Time_%.4e_YZ", TIME_curr);
@@ -5878,6 +5893,84 @@ void ElastodynamicsProblem_ExplicitSimple_fast(char properties_file[1000])
 			}
 
 			grid_YZ_plane.printTecPlot3D(fout_tech, value, name_value, name_in_file, TIME_curr);
+			fclose(fout_tech);
+		}
+		//via XZ plane
+		if (is_print_result) {
+			math::SimpleGrid grid_XZ_plane; //input
+			char in_file[1000];
+			sprintf_s(in_file, "%s/Plane_XZ.dat", mesh_directory);
+			grid_XZ_plane.ReadFromSalomeDat(in_file, 2);
+
+			FILE* fout_tech;
+			char name_u_tech[5000];
+			sprintf_s(name_u_tech, "%s/U_plane_XZ_s%d_t%.2e.dat", result_directory_XZ, id_STEP, TIME_curr);
+			fopen_s(&fout_tech, name_u_tech, "w");
+			char name_in_file[1000];
+			sprintf_s(name_in_file, "Time_%.4e_XZ", TIME_curr);
+			std::vector<std::vector<char>> name_value(6);
+			char name_v_tmp[6][100];
+			sprintf_s(name_v_tmp[0], "sigma_Mises");
+			sprintf_s(name_v_tmp[1], "sigma_zz");
+			sprintf_s(name_v_tmp[2], "Ux");
+			sprintf_s(name_v_tmp[3], "Uy");
+			sprintf_s(name_v_tmp[4], "Uz");
+			sprintf_s(name_v_tmp[5], "Vz");
+			for (int i = 0; i < name_value.size(); i++)
+			{
+				name_value[i].resize(100);
+				for (int j = 0; j < name_value[i].size(); j++)
+				{
+					name_value[i][j] = name_v_tmp[i][j];
+				}
+			}
+			std::vector<std::vector<double>> value(3 * 2);
+			value[0].resize(grid_XZ_plane.nvtr.size());
+			value[1].resize(grid_XZ_plane.nvtr.size());
+			value[2].resize(grid_XZ_plane.nvtr.size());
+			value[3].resize(grid_XZ_plane.nvtr.size());
+			value[4].resize(grid_XZ_plane.nvtr.size());
+			value[5].resize(grid_XZ_plane.nvtr.size());
+			double sigma_inv_max = 0;
+			int elem_sigma_max = 0;
+			for (int i = 0; i < grid_XZ_plane.nvtr.size(); i++)
+			{
+				Point<double> Centr;
+				for (int j = 0; j < grid_XZ_plane.nvtr[i].size(); j++)
+				{
+					Centr += grid_XZ_plane.xyz[grid_XZ_plane.nvtr[i][j]];
+				}
+				Centr /= grid_XZ_plane.nvtr[i].size();
+
+				double len;
+				int id_elem = solver_grid.GetNearestElementID(Centr, len);
+				if (id_elem >= 0)
+				{
+					auto element = solver_grid.GetElement(id_elem);
+
+					Point<double> U = solver_grid.GetSolutionInPoint(id_elem, Centr, U_curr);
+					Point<double> U_prev_ = solver_grid.GetSolutionInPoint(id_elem, Centr, U_prev);
+					Point<Point<double>> dU = solver_grid.GetDerevativeFromSolutionInPoint(id_elem, Centr, U_curr);
+					auto Eps = solver_grid.GetStrainTensorFromSolutionInPoint(id_elem, Centr, dU);
+					auto Sigma = solver_grid.GetStressTensorFromSolutionInPoint(id_elem, Centr, Eps);
+					auto MisesSigma = solver_grid.GetVonMisesStress(Sigma);
+
+					auto Eps_inv = sqrt((Eps.val[0][0] - Eps.val[1][1]) * (Eps.val[0][0] - Eps.val[1][1])
+						+ (Eps.val[1][1] - Eps.val[2][2]) * (Eps.val[1][1] - Eps.val[2][2])
+						+ (Eps.val[0][0] - Eps.val[2][2]) * (Eps.val[0][0] - Eps.val[2][2])
+						+ 3 * (Eps.val[0][1] * Eps.val[1][0] + Eps.val[0][2] * Eps.val[2][0] + Eps.val[1][2] * Eps.val[2][1]) / 2.0) * sqrt(2.) / 3.;
+
+					value[0][i] = MisesSigma;
+					value[1][i] = Sigma.val[2][2];
+
+					value[2][i] = U.x;
+					value[3][i] = U.y;
+					value[4][i] = U.z;
+					value[5][i] = (U_prev_.z - U.z) / TIME_h;
+				}
+			}
+
+			grid_XZ_plane.printTecPlot3D(fout_tech, value, name_value, name_in_file, TIME_curr);
 			fclose(fout_tech);
 		}
 		//U in point
@@ -8371,7 +8464,7 @@ void main()
 
 
 	char base_name[1000] = {"./param_for_solver"};
-	//char base_name[1000] = { "D:/Problems/Elastodynamic/54k/param_for_solver" };
+	//char base_name[1000] = { "D:/Problems/Elastodynamic/252k/param_for_solver" };
 	//char base_name[1000] = {"D:/Problems/Elastodynamic/29k/param_for_solver"};
 	char properties_file[1000];
 	FILE* fparam;
