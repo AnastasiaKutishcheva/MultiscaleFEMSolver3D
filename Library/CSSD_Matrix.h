@@ -239,6 +239,70 @@ public:
 
 		return false;
 	}
+	//only for DOUBLE matrix
+	double SolveMaxEigenvalue()
+	{
+		double lambda = 0;
+		double eps_l = 1e-3;
+		std::vector<double> X_k(this->GetMatrixSize());
+
+		//set x_0
+		double x_summ = 0;
+		for (int i = 0; i < X_k.size(); i+=2)
+		{
+			double D = 1;
+			double M = 0;
+			double u, v, s;
+			do {
+				u = 2.0 * rand() * 1.0 / RAND_MAX - 1.0;;
+				v = 2.0 * rand() * 1.0 / RAND_MAX - 1.0;
+				s = u * u + v * v;
+			} while (s > 1.0 || s == 0.0);
+			
+			double r = sqrt(-2.0 * log(s) / s);
+
+			double v0 = r * v * D + M;
+			double v1 = r * u * D + M;
+
+			X_k[i] = v0;
+			x_summ += X_k[i];
+
+			if (i + 1 < X_k.size())
+			{
+				X_k[i + 1] = v1;
+				x_summ += X_k[i + 1]* X_k[i + 1];
+			}
+		}
+		for (int i = 0; i < X_k.size(); i++)
+		{
+			X_k[i] /= sqrt(x_summ);
+		}
+
+		std::vector<double> tmp;
+		MultiplicationMatrixVector(X_k, tmp);
+		double lambda_prev = math::MakeInnerProduct(X_k, tmp);
+
+		for (int k = 1; k < this->GetMatrixSize(); k++)
+		{
+			MultiplicationMatrixVector(X_k, tmp); //x_k = A_x_k-1
+			double norma = sqrt(math::MakeInnerProduct(tmp, tmp));
+
+			for (int i = 0; i < X_k.size(); i++)
+			{
+				X_k[i] = tmp[i] / norma;
+			}
+
+			MultiplicationMatrixVector(X_k, tmp);
+			lambda = math::MakeInnerProduct(X_k, tmp);
+
+			if (abs(lambda - lambda_prev) / abs(lambda_prev) <= eps_l)
+				break;
+
+			lambda_prev = lambda;
+		}
+
+		return lambda;
+	}
 
 	void SummPartOfMatrix(DenseMatrix<TForMatrix, TForVector> &matrix, std::vector<int> &id_row)
 	{
@@ -314,6 +378,19 @@ public:
 		}
 	}
 
+	//this = A*coefA + B*coefB +...
+	void SummMatrix(CSSD_Matrix<TForMatrix, TForVector> &A, double coefA, CSSD_Matrix<TForMatrix, TForVector>& B, double coefB)
+	{
+		for (int i = 0; i < this->Diag.size(); i++)
+		{
+			this->Diag[i] = A.Diag[i] * coefA + B.Diag[i] * coefB;
+
+			for (int j = 0; j < this->A_up[i].size(); j++)
+				this->A_up[i][j] = A.A_up[i][j] * coefA + B.A_up[i][j] * coefB;
+			for (int j = 0; j < this->A_down[i].size(); j++)
+				this->A_down[i][j] = A.A_down[i][j] * coefA + B.A_down[i][j] * coefB;
+		}
+	}
 
 	void MultiplicationMatrixVector(std::vector<TForVector> &B, std::vector<TForVector> &result)
 	{

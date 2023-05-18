@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <functional>
+#include <string>
 //#include "DenseMatrix.h"
 #include "Tensor.h"
 #include "omp.h"
@@ -2826,6 +2827,56 @@ namespace math
 
 		return res;
 	}
+	int ParserStringToVectorString(char* A, std::vector<std::string>& B, const char* separator)
+	{
+		std::vector<std::string> v_el;
+		std::vector<std::string>(v_el).swap(B);
+
+		int res = 0;
+		char b[100];
+		int curr_ib = 0;
+
+		//printf_s("%s\r", A);
+		for (int ia = 0; ia < strlen(A); ia++)
+		{
+			res++;
+
+			bool flag = false;
+			for (int js = 0; js < strlen(separator); js++)
+			{
+				if (separator[js] == A[ia])
+				{
+					flag = true;
+					b[curr_ib] = '\0';
+
+					if (curr_ib != 0)
+					{
+						std::string tmp(b);
+						B.push_back(tmp);
+						//sprintf_s(B[B.size()-1], sizeof(b), "%s", b);
+					}
+					curr_ib = 0;
+					break;
+				}
+			}
+
+			if (!flag)
+			{
+				b[curr_ib] = A[ia];
+				curr_ib++;
+
+				if (ia == strlen(A) - 1)
+				{
+					b[curr_ib + 1] = '\0';
+
+					std::string tmp(b);
+					B.push_back(tmp);
+				}
+			}
+		}
+
+		return res;
+	}
 	int ParserStringToVectorInt(char *A, std::vector<int> &B, const char *separator)
 	{
 		int res = 0;
@@ -2883,13 +2934,85 @@ namespace math
 		B[1] = '\0';
 		return atoi(B);
 	}
+	/// <summary>
+		/// Допускается раделитель "," и " ". 
+		/// Можно задать интервал: -1000:10:1000 - от -1000 до 1000 с шагом 10.
+		/// </summary>
+		/// <param name="text"></param>
+		/// <param name="result"></param>
+	void ParserStringToDouble(std::string text, std::vector<double> &result)
+	{
+		std::vector<double> v_el;
+		std::vector<double>(v_el).swap(result);
+
+		//char* text = new char[in_text.length() + 1];
+		//strcpy_s(text, sizeof(in_text), in_text.c_str());
+
+		char s_num[100];
+		int s_num_k = 0;
+		std::vector<double> nums;
+		std::vector<int> div;
+		//for (int i = 0; i < strlen(text); i++)
+		for (int i = 0; i < text.length(); i++)
+		{
+			if (text[i] != ' ' && text[i] != '\n' && text[i] != ',' && text[i] != ':')
+			{
+				s_num[s_num_k] = text[i]; // делаешь с символами то, что тебе нужно
+				s_num_k++;
+			}
+			else
+			{
+				if (s_num_k != 0)
+				{
+					s_num[s_num_k] = '\0';
+					nums.push_back(atof(s_num));
+					div.push_back(0);
+					s_num_k = 0;
+				}
+			}
+
+			if (text[i] == ':')
+			{
+				div[nums.size() - 1] = 1;
+			}
+
+			//if (i == (strlen(text) - 1) && text[i] != ' ' && text[i] != '\n' && text[i] != ',')
+			if (i == (text.length() - 1) && text[i] != ' ' && text[i] != '\n' && text[i] != ',')
+			{
+				s_num[s_num_k] = '\0';
+				nums.push_back(atof(s_num));
+				div.push_back(0);
+				s_num_k = 0;
+			}
+		}
+
+		for (int i = 0; i < nums.size(); i++)
+		{
+			if (div[i] == 1 && i != (nums.size() - 2))
+			{
+				int count = (int)((nums[i + 2] - nums[i]) / nums[i + 1]);
+				double step = nums[i + 1];
+				for (int j = 0; j < count; j++)
+				{
+					result.push_back(nums[i] + step * j);
+				}
+				div[i + 1] = 0;
+				i++;
+			}
+			else
+			{
+				result.push_back(nums[i]);
+			}
+		}
+		return;
+	}
+
 	wchar_t* MakeConvertationFromCharToWchar(char* c, size_t max)
 	{
 		wchar_t* w = new wchar_t[max];
 		mbstowcs_s(&max, w, max, c, max);
 		return w;
 	}
-
 	void ReadNonEmptyLine(FILE *fin, char *result_line)
 	{
 		char stop_sumbols[100] = "\n#";
