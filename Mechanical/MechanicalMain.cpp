@@ -9970,6 +9970,1408 @@ void ElastodynamicsProblem_ImplicitNewmark_fast(char properties_file[1000])
 	}
 }
 
+void ElastodynamicsProblemSigma0_ImplicitNewmark_fast(char properties_file[1000])
+{
+	FEM::Grid_forMech solver_grid; //output
+	std::vector<Point<double>> Solution; //output
+
+	double BETTA_Newmark = 1.0 / 4.0;
+	double GAMMA_Newmark = 1.0 / 2.0;
+
+	bool is_STATIONARY = false;
+
+
+	//char properties_file[1000] = { "E:/+cyl/800el/param.txt" };
+	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/67k/param.txt" };
+	//char properties_file[1000] = { "E:/Box/100x10x200/BoxWithCracks/638k/param.txt" };
+	//char properties_file[1000] = { "E:/Box/100x50x200/param.txt" };
+	//char properties_file[1000] = { "E:/Box/200x200x200/200k_fem/param_for_solver.txt" };
+	//char properties_file[1000] = { "./param_for_solver.txt" };
+	//char properties_file[1000] = { "D:/Elastodynamic/homocyl/67k/param_for_solver.txt" };
+	//char properties_file[1000] = { "base_properties.txt" };
+	printf_s("The properties file contains the information:\n==========================================\n");
+	printf_s("\tDo you need to print to a log file? 0-false/1-true\n");
+	printf_s("\tinput: Mesh directory: box_200x200x200/90el\n");
+	printf_s("\tproperties: Iterative process:\n");
+	printf_s("\t\t<Start iteration> <End iteration>\n");
+	printf_s("\t\t<Step size for Time>\n");
+	printf_s("\t\t<Critical residual value for SLAE solution>\n");
+	printf_s("\t<properties: Boundary values>\n");
+	printf_s("\t<properties: Materials (E, v, rpho)>\n");
+	printf_s("\t<output: Result directory: box_200x200x200/90el/result>\n==========================================\n");
+
+
+	//printf_s("Enter the name of the properties file: ");
+	//scanf_s("%s", &properties_file);
+
+	FILE* f_properties;
+	fopen_s(&f_properties, properties_file, "r");
+	if (f_properties == NULL)
+	{
+		printf_s("\nError in properties file\n");
+	}
+	bool is_print_logFile = false;
+	char mesh_directory[1000];
+	char base_result_directory[1000];
+
+
+	{
+		char _line[1000];
+		std::vector<int> val;
+
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		math::ParserStringToVectorInt(_line, val, " ");
+		if (val[0] == 1)
+			is_print_logFile = true;
+
+
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		math::ParserStringToVectorInt(_line, val, " ");
+		math::NUM_THREADS = val[0];
+	}
+
+	math::ReadNonEmptyLine(f_properties, mesh_directory);
+	math::ReadNonEmptyLine(f_properties, base_result_directory);
+	math::SimpleGrid geo_grid; //input
+	std::vector<std::vector<std::vector<int>>> boundary_faces;
+	geo_grid.ReadFromNVTR(mesh_directory, 4);
+	geo_grid.ReadFacesBoundaryNVTR(mesh_directory, boundary_faces);
+
+	struct Receiver
+	{
+		Point<double> point;
+		std::vector<Point<double>> U_in_point;
+		int id_node;
+		char file_name[1000];
+	};
+	std::vector<Receiver> receivers;
+	std::vector<double> receivers_times;
+	/*{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<double> val;
+		math::ParserStringToVectorDouble(_line, val, " ");
+
+		int N = (int)val[0];
+
+		receivers.resize(N);
+		for (int i = 0; i < N; i++)
+		{
+			receivers[i].point.x = val[1 + 0 + i * 3];
+			receivers[i].point.y = val[1 + 1 + i * 3];
+			receivers[i].point.z = val[1 + 2 + i * 3];
+		}
+	}*/
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<std::string> string_val;
+		math::ParserStringToVectorString(_line, string_val, " ");
+
+		for (int group = 0; group < string_val.size() / 3; group++)
+		{
+			std::vector<double> receivers_x;
+			std::vector<double> receivers_y;
+			std::vector<double> receivers_z;
+
+			math::ParserStringToDouble(string_val[group], receivers_x);
+			math::ParserStringToDouble(string_val[group + 1], receivers_y);
+			math::ParserStringToDouble(string_val[group + 2], receivers_z);
+
+			for (int k = 0; k < receivers_z.size(); k++)
+			{
+				for (int j = 0; j < receivers_y.size(); j++)
+				{
+					for (int i = 0; i < receivers_x.size(); i++)
+					{
+						Receiver rec;
+						rec.point.x = receivers_x[i];
+						rec.point.y = receivers_y[j];
+						rec.point.z = receivers_z[k];
+
+						receivers.push_back(rec);
+					}
+				}
+			}
+		}
+
+	}
+	Point<double> crack_top;
+	Point<double> crack_bottom;
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<double> val;
+		math::ParserStringToVectorDouble(_line, val, " ");
+
+		crack_bottom.x = val[0];
+		crack_bottom.y = val[1];
+		crack_bottom.z = val[2];
+
+		crack_top.x = val[3];
+		crack_top.y = val[4];
+		crack_top.z = val[5];
+	}
+
+	int start_iteration, end_iteration;
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<int> val;
+		math::ParserStringToVectorInt(_line, val, " ");
+		start_iteration = val[0];
+		end_iteration = val[1];
+	}
+	double step_size;
+	int step_for_out;
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<float> val;
+		math::ParserStringToVectorFloat(_line, val, " ");
+		step_size = val[0];
+		std::vector<int> val2;
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		math::ParserStringToVectorInt(_line, val2, " ");
+		step_for_out = (int)val2[0];
+	}
+
+	double critical_residual;
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<float> val;
+		math::ParserStringToVectorFloat(_line, val, " ");
+		critical_residual = val[0];
+	}
+
+	//read Boundary values and vertexes
+	struct _Dirichlet {
+		/*Point<double> value_const;
+		Point<bool> is_condition;*/
+		std::vector<int> id_vertexes;
+		std::function<Point<double>(Point<bool>&, int)> value;
+	};
+	std::vector<_Dirichlet> first_boundaries;
+	{
+		int Nb;
+		std::vector<int> id_boundaries;
+		{
+			char _line[1000];
+			math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+			std::vector<int> val;
+			math::ParserStringToVectorInt(_line, val, " ");
+			Nb = val[0];
+		}
+
+		first_boundaries.resize(Nb);
+		id_boundaries.resize(Nb);
+		char line[1000];
+		for (int i = 0; i < Nb; i++)
+		{
+			Point<double> value;
+			Point<bool> is_condition;
+
+			math::ReadNonEmptyLine_forNumbers(f_properties, line);
+
+			if (line[0] != '#')
+			{
+				id_boundaries[i] = math::ParserCharToInt(line[0]);
+				int jj = 0;
+				int curr_i = 0;
+				char _tmp_line[1000];
+				for (int j = 1; j < 1000; j++)
+				{
+					switch (line[j])
+					{
+					case '\0': j = 1000; break;
+					case '\n': j = 1000; break;
+					case '#': j = 1000; break;
+					case '*':
+					{
+						switch (jj)
+						{
+						case 0: is_condition.x = false; break;
+						case 1: is_condition.y = false; break;
+						case 2: is_condition.z = false; break;
+						default:
+							break;
+						}
+						jj++;
+						break;
+					}
+					case ' ':
+					{
+						if (curr_i > 0)
+						{
+							std::vector<float> _val;
+							_tmp_line[curr_i] = '\0';
+							math::ParserStringToVectorFloat(_tmp_line, _val, " *");
+							curr_i = 0;
+
+							switch (jj)
+							{
+							case 0: is_condition.x = true; value.x = _val[0]; break;
+							case 1: is_condition.y = true; value.y = _val[0]; break;
+							case 2: is_condition.z = true; value.z = _val[0]; break;
+							default:
+								break;
+							}
+							jj++;
+						}
+						break;
+					}
+					case '\t': break;
+					default:
+					{
+						_tmp_line[curr_i] = line[j];
+						curr_i++;
+					}
+					break;
+					}
+				}
+			}
+
+			first_boundaries[i].value = [value, is_condition](Point<bool>& is_take, int id)->Point<double>
+			{
+				is_take = is_condition;
+				return value;
+			};
+		}
+
+		if (Nb != 0)
+		{
+			for (int id_type = 0; id_type < Nb; id_type++)
+			{
+				std::vector<int> tmp_vert;
+				for (int i = 0; i < boundary_faces[id_boundaries[id_type]].size(); i++)
+				{
+					for (int j = 1; j < boundary_faces[id_boundaries[id_type]][i].size(); j++)
+					{
+						tmp_vert.push_back(boundary_faces[id_boundaries[id_type]][i][j]);
+					}
+				}
+				math::MakeQuickSort(tmp_vert);
+				math::MakeRemovalOfDuplication(tmp_vert, first_boundaries[id_type].id_vertexes);
+			}
+
+			//
+			/*first_boundaries[0].id_vertexes.resize(1);
+			first_boundaries[0].id_vertexes[0] = 8;*/
+		}
+	}
+
+	struct _Neumann {
+		/*double value;
+		Point<double> vector;*/
+		std::function<Point<double>(Point<double>)> value;
+		std::vector<std::function<Point<double>(Point<double>)>> values;
+		std::vector<std::vector<int>> id_vertexes_as_triangle;
+		std::vector<int> id_base_element;
+	};
+	struct Gauss_source {
+		bool is_used = false;
+		int target_boundary = 0;
+		int degree = 0;
+		double tay = 0;
+		double t0 = 0;
+		double power = 0;
+		Point<double> direction;
+
+		Point<double> value(double Time_curr)
+		{
+			double arg = (Time_curr - t0) / tay;
+			return direction * power * exp(-1.0 * pow(arg, degree));
+		}
+	} gauss_source;
+	struct LinearModulationSin_source
+	{
+		bool is_used = false;
+		int target_boundary = 0;
+
+		double w_min = 1; //Hz
+		double w_max = 1000; //Hz
+		double tay = 1; //signal duration
+		double t0; //start signal
+		double power = 1;
+		Point<double> direction;
+
+		Point<double> value(double Time_curr)
+		{
+			double modulation = w_min + (w_max - w_min) * (Time_curr - t0) / tay;
+			if (Time_curr <= t0 + tay)
+				return direction * power * sin(2 * M_PI * Time_curr * modulation);
+
+			return direction * power * 0.0;
+		}
+	} linearModulationSin_source;
+	std::vector<_Neumann> second_boundary;
+	{
+		int Nb;
+		{
+			char _line[1000];
+			math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+			std::vector<int> val;
+			math::ParserStringToVectorInt(_line, val, " ");
+			Nb = val[0];
+		}
+		second_boundary.resize(Nb);
+		std::vector<int> id_boundaries(Nb);
+		char line[1000];
+		std::vector<bool> is_individual_values(Nb);
+		std::vector<double> individual_values(Nb);
+		for (int i = 0; i < Nb; i++)
+		{
+			is_individual_values[i] = false;
+			double value;
+			Point<double> vector;
+
+			math::ReadNonEmptyLine_forNumbers(f_properties, line);
+			int id_boundary = math::ParserCharToInt(line[0]);
+
+			if (line[0] == '-')
+				id_boundary = math::ParserCharToInt(line[1]) * -1;
+
+			id_boundaries[i] = abs(id_boundary);
+			int jj = 0;
+			int curr_i = 0;
+			char _tmp_line[1000];
+			for (int j = 1; j < 1000; j++)
+			{
+				if ((curr_i > 0) && (line[j] == '\n' || line[j] == '\0' || line[j] == '#'))
+				{
+					std::vector<float> val;
+					_tmp_line[curr_i] = '\0';
+					math::ParserStringToVectorFloat(_tmp_line, val, " ");
+					curr_i = 0;
+
+					value = val[0];
+					vector.x = val[1];
+					vector.y = val[2];
+					vector.z = val[3];
+
+					individual_values[i] = value;
+					if (math::IsEqual(math::SolveLengthVector(vector), 0.0))
+					{
+						is_individual_values[i] = true;
+					}
+
+					//special boundary
+					if (id_boundary < 0)
+					{
+						switch ((int)(val[1]))
+						{
+						case 1:
+							gauss_source.is_used = true;
+							gauss_source.power = val[2];
+							gauss_source.direction.x = val[3];
+							gauss_source.direction.y = val[4];
+							gauss_source.direction.z = val[5];
+							gauss_source.degree = (int)val[6];
+							gauss_source.t0 = val[7];
+							gauss_source.tay = val[8];
+							gauss_source.target_boundary = i;
+							break;
+						case 2:
+							linearModulationSin_source.is_used = true;
+							linearModulationSin_source.power = val[2];
+							linearModulationSin_source.direction.x = val[3];
+							linearModulationSin_source.direction.y = val[4];
+							linearModulationSin_source.direction.z = val[5];
+							linearModulationSin_source.t0 = val[6];
+							linearModulationSin_source.tay = val[7];
+							linearModulationSin_source.w_min = val[8];
+							linearModulationSin_source.w_max = val[9];
+							linearModulationSin_source.target_boundary = i;
+							break;
+						default:
+							break;
+						}
+
+					}
+
+					break;
+				}
+				else
+				{
+					if (line[j] != '\t')
+					{
+						_tmp_line[curr_i] = line[j];
+						curr_i++;
+					}
+				}
+			}
+
+			if (is_individual_values[i] == false)
+			{
+				second_boundary[i].value = [value, vector](Point<double> X) -> Point<double>
+				{
+					Point <double> res;
+					res.x = vector.x * value;
+					res.y = vector.y * value;
+					res.z = vector.z * value;
+					return res;
+				};
+			}
+		}
+
+		if (Nb != 0)
+		{
+			for (int id_type = 0; id_type < Nb; id_type++)
+			{
+				second_boundary[id_type].id_vertexes_as_triangle.resize(boundary_faces[id_boundaries[id_type]].size());
+				for (int id_triang = 0; id_triang < boundary_faces[id_boundaries[id_type]].size(); id_triang++)
+				{
+					printf_s("Create boundary condition %d (triangle %d/%d)\r", id_boundaries[id_type], id_triang, boundary_faces[id_boundaries[id_type]].size());
+					int test_vertex = -1;
+					int base_elem = boundary_faces[id_boundaries[id_type]][id_triang][0];
+
+					for (int i = 1; i < boundary_faces[id_boundaries[id_type]][id_triang].size(); i++)
+						second_boundary[id_type].id_vertexes_as_triangle[id_triang].push_back(boundary_faces[id_boundaries[id_type]][id_triang][i]);
+					second_boundary[id_type].id_base_element.push_back(base_elem);
+
+					//по собственным нормалям
+					if (is_individual_values[id_type] == true)
+					{
+						double A, B, C, D;
+						Point<double> test_vector = geo_grid.xyz[test_vertex];
+						std::vector<Point<double>> vertexes(3);
+						vertexes[0] = geo_grid.xyz[second_boundary[id_type].id_vertexes_as_triangle[id_triang][0]];
+						vertexes[1] = geo_grid.xyz[second_boundary[id_type].id_vertexes_as_triangle[id_triang][1]];
+						vertexes[2] = geo_grid.xyz[second_boundary[id_type].id_vertexes_as_triangle[id_triang][2]];
+						bool reverse = false;
+						math::GetPlaneEquation(vertexes, A, B, C, D);
+
+						if (Point<double>(A, B, C) * test_vector > 0)
+						{
+							int t = second_boundary[id_type].id_vertexes_as_triangle[id_triang][1];
+							second_boundary[id_type].id_vertexes_as_triangle[id_triang][1] = second_boundary[id_type].id_vertexes_as_triangle[id_triang][2];
+							second_boundary[id_type].id_vertexes_as_triangle[id_triang][2] = t;
+
+							vertexes[0] = geo_grid.xyz[second_boundary[id_type].id_vertexes_as_triangle[id_triang][0]];
+							vertexes[1] = geo_grid.xyz[second_boundary[id_type].id_vertexes_as_triangle[id_triang][1]];
+							vertexes[2] = geo_grid.xyz[second_boundary[id_type].id_vertexes_as_triangle[id_triang][2]];
+						}
+						Point<double> normal;
+						double d;
+						math::GetPlaneEquation(vertexes, normal.x, normal.y, normal.z, d);
+						normal /= math::SolveLengthVector(normal);
+
+						double _val = individual_values[id_type];
+						std::function<Point<double>(Point<double>)> curr_val = [_val, normal](Point<double> X) -> Point<double>
+						{
+							Point <double> res;
+							res.x = normal.x * _val;
+							res.y = normal.y * _val;
+							res.z = normal.z * _val;
+							return res;
+						};
+						second_boundary[id_type].values.push_back(curr_val);
+					}
+				}
+			}
+		}
+	}
+
+	//read Materials
+	struct _material
+	{
+		double _E;
+		double _v;
+		double _rpho;
+
+		_material(double _E, double _v, double _rpho)
+		{
+			this->_E = _E;
+			this->_v = _v;
+			this->_rpho = _rpho;
+		}
+	};
+	std::vector<_material> _materials;
+	int N_domain;
+	{
+		char _line[1000];
+		math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+		std::vector<int> val;
+		math::ParserStringToVectorInt(_line, val, " ");
+		N_domain = val[0];
+	}
+	for (int id_domain = 0; id_domain < N_domain; id_domain++)
+	{
+		double _E, _v, _rpho;
+		{
+			char _line[1000];
+			math::ReadNonEmptyLine_forNumbers(f_properties, _line);
+			std::vector<float> val;
+			math::ParserStringToVectorFloat(_line, val, " ");
+			_E = val[0];
+			_v = val[1];
+			_rpho = val[2];
+		}
+		_materials.push_back(_material(_E, _v, _rpho));
+	}
+
+	{
+		N_domain++;
+		double _E = 0;
+		double _v = 0;
+		double _rpho = 0;
+		_materials.push_back(_material(_E, _v, _rpho));
+
+		for (int i = 0; i < geo_grid.nvtr.size(); i++)
+		{
+			Point<double> centr;
+			for (int j = 0; j < geo_grid.nvtr[i].size(); j++)
+			{
+				centr += geo_grid.xyz[geo_grid.nvtr[i][j]] / geo_grid.nvtr[i].size();
+			}
+			if (crack_bottom.x < centr.x && centr.x < crack_top.x &&
+				crack_bottom.y < centr.y && centr.y < crack_top.y &&
+				crack_bottom.z < centr.z && centr.z < crack_top.z)
+			{
+				geo_grid.nvkat[i] = N_domain - 1;
+			}
+		}
+	}
+
+	fclose(f_properties);
+
+	wchar_t _tmp_wc[1000];
+	math::Char_To_Wchar_t(base_result_directory, _tmp_wc, 1000);
+	CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+
+	bool res = false;
+	double TIME_h = step_size;
+	if (is_STATIONARY) {
+		end_iteration = 1;
+		start_iteration = 0;
+	}
+	std::vector<Point<double>> U_prev(geo_grid.xyz.size()), U_prevprev(geo_grid.xyz.size()), U_curr(geo_grid.xyz.size());
+	std::vector<double> U_prev_d(geo_grid.xyz.size() * 3), U_prevprev_d(geo_grid.xyz.size() * 3);
+	math::InitializationVector(U_curr, 0);
+	math::InitializationVector(U_prev, 0);
+	math::InitializationVector(U_prevprev, 0);
+
+	CSSD_Matrix<Tensor2Rank3D, Point<double>> StiffnessMatrix;
+	CSSD_Matrix<Tensor2Rank3D, Point<double>> MassMatrix;
+	CSSD_Matrix<double, double> MassMatrix_doubleSLAE;
+	CSSD_Matrix<double, double> StiffnessMatrix_doubleSLAE;
+	CSSD_Matrix<double, double> SLAE_n, Tmp_matrix;
+	CSSD_Matrix<Tensor2Rank3D, Point<double>> VolumeForceVector;
+	printf("Initialization of grid...\t");
+	solver_grid.Initialization(geo_grid, first_boundaries, second_boundary);
+	for (int i = 0; i < _materials.size(); i++)
+	{
+		solver_grid.AddDomain();
+		auto domain = solver_grid.GetDomain(i);
+		domain->forThermal.rpho = _materials[i]._rpho;
+		domain->forMech.SetE(_materials[i]._E);
+		domain->forMech.SetV(_materials[i]._v);
+	}
+	printf_s("complite\n");
+	printf("Creation the SLAE portrait...\t");
+	solver_grid.CreationPortrait(StiffnessMatrix);
+	MassMatrix.SetMatrix(StiffnessMatrix);
+	VolumeForceVector.F.resize(StiffnessMatrix.F.size());
+	printf_s("\t\tcomplite\n");
+
+	std::vector<int> clear_vertexes;
+
+	//строим базовые матрицы жесткости/массы/вектор силы тяжести
+	//матрица массы идет с коэффициентом rpho
+	printf_s("================= Create matrix ================\n");
+	{
+		std::function<std::vector<std::vector<double>>(int, Point<double>)> StiffnessCoef = [&](int elem, Point<double> X)->std::vector<std::vector<double>>
+		{
+			std::vector<std::vector<double>> D = solver_grid.GetDomain(solver_grid.GetElement(elem)->GetIdDomain())->forMech.GetD(3);
+			/*for (int i = 0; i < D.size(); i++)
+				for (int j = 0; j < D[i].size(); j++)
+					D[i][j] *= 1;*/
+			return D;
+		};
+		std::function<double(int, Point<double>)> MassCoef = [&](int elem, Point<double> X)->double
+		{
+			return solver_grid.GetDomain(solver_grid.GetElement(elem)->GetIdDomain())->forThermal.rpho;
+		};
+		std::function<Point<double>(int, Point<double>)> VolumeForсe = [&](int elem, Point<double> X)->Point<double>
+		{
+			return Point<double>(0, 0, 0);
+		};
+
+		printf("Matrix assembling...\n");
+		std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE_stiffness(solver_grid.GetElementsCount());
+		std::vector<DenseMatrix<Tensor2Rank3D, Point<double>>> local_SLAE_mass(solver_grid.GetElementsCount());
+		std::vector< std::vector<Point<double>>> local_force(solver_grid.GetElementsCount());
+		omp_set_num_threads(math::NUM_THREADS);
+#pragma omp parallel for schedule(dynamic)
+		for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+		{
+			if (id_elem % 1000 == 0)
+				printf("Solve element[%d]\r", id_elem);
+			auto element = solver_grid.GetElement(id_elem);
+
+			if (element->GetIdDomain() != solver_grid.GetDomainsCount() - 1)
+			{
+				std::function<std::vector<std::vector<double>>(Point<double>)> D = [&](Point<double> X) {return StiffnessCoef(id_elem, X); };
+				std::function<double(Point<double>)> M = [&](Point<double> X) {return MassCoef(id_elem, X); };
+				std::function<Point<double>(Point<double>)> F = [&](Point<double> X) {return VolumeForсe(id_elem, X); };
+
+				element->SolveLocalMatrix(local_SLAE_stiffness[id_elem], D);
+				element->SolveMassMatrix(local_SLAE_mass[id_elem], M);
+				element->SolveRightSide(local_force[id_elem], F);
+			}
+			else
+			{
+				local_SLAE_mass[id_elem].SetSize(element->GetDOFsCount());
+				local_SLAE_stiffness[id_elem].SetSize(element->GetDOFsCount());
+				local_force[id_elem].resize(element->GetDOFsCount());
+			}
+		}
+		for (int id_elem = 0; id_elem < solver_grid.GetElementsCount(); id_elem++)
+		{
+			if (id_elem % 1000 == 0)
+				printf("Add the local matrix of element[%d]\r", id_elem);
+			StiffnessMatrix.SummPartOfMatrix(local_SLAE_stiffness[id_elem], *solver_grid.GetElementDOFs(id_elem));
+			MassMatrix.SummPartOfMatrix(local_SLAE_mass[id_elem], *solver_grid.GetElementDOFs(id_elem));
+			VolumeForceVector.SummPartOfVector(local_force[id_elem], *solver_grid.GetElementDOFs(id_elem));
+		}
+		printf_s("                                                                                    \r");
+		printf_s("\t\tcomplite\n");
+
+		//учитываем первые краевые ТОЛЬКО в матрице массы БЕЗ симметризации
+		if (false) {
+			//обнуляем строки
+			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			{
+				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+				int id_type = boundary->id_type;
+				Point<bool> is_take;
+				Point<double> boundary_value = boundary->boundary_value(is_take, solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
+				int global_id = boundary->GetDOFInLocalID(0);
+
+				auto enter_boundary = [global_id, &boundary_value](int position, CSSD_Matrix<Tensor2Rank3D, Point<double>>& global_SLAE) {
+					global_SLAE.Diag[global_id].val[position][0] = 0.0;
+					global_SLAE.Diag[global_id].val[position][1] = 0.0;
+					global_SLAE.Diag[global_id].val[position][2] = 0.0;
+					global_SLAE.Diag[global_id].val[position][position] = 1.0;
+					for (int j = 0; j < global_SLAE.A_down[global_id].size(); j++)
+					{
+						global_SLAE.A_down[global_id][j].val[position][0] = 0.0;
+						global_SLAE.A_down[global_id][j].val[position][1] = 0.0;
+						global_SLAE.A_down[global_id][j].val[position][2] = 0.0;
+					}
+					for (int j = 0; j < global_SLAE.A_up[global_id].size(); j++)
+					{
+						global_SLAE.A_up[global_id][j].val[position][0] = 0.0;
+						global_SLAE.A_up[global_id][j].val[position][1] = 0.0;
+						global_SLAE.A_up[global_id][j].val[position][2] = 0.0;
+					}
+				};
+				if (is_take.x == true) enter_boundary(0, MassMatrix);
+				if (is_take.y == true) enter_boundary(1, MassMatrix);
+				if (is_take.z == true) enter_boundary(2, MassMatrix);
+			}
+		}
+		if (false) {
+			//большое число на диагональ
+			for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+			{
+				auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+				int id_type = boundary->id_type;
+				Point<bool> is_take;
+				Point<double> boundary_value = boundary->boundary_value(is_take, solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
+				int global_id = boundary->GetDOFInLocalID(0);
+
+				auto enter_boundary = [global_id, &boundary_value](int position, CSSD_Matrix<Tensor2Rank3D, Point<double>>& global_SLAE) {
+					global_SLAE.Diag[global_id].val[position][position] = 1e+30;
+				};
+				if (is_take.x == true) enter_boundary(0, MassMatrix);
+				if (is_take.y == true) enter_boundary(1, MassMatrix);
+				if (is_take.z == true) enter_boundary(2, MassMatrix);
+			}
+		}
+		for (int i = 0; i < MassMatrix.Diag.size(); i++)
+		{
+			if (abs(MassMatrix.Diag[i].val[0][0]) < 1e-12 || abs(MassMatrix.Diag[i].val[1][1]) < 1e-12 || abs(MassMatrix.Diag[i].val[2][2]) < 1e-12)
+			{
+				MassMatrix.Diag[i].InitializationAsI();
+				clear_vertexes.push_back(i);
+			}
+		}
+
+		//переводим матрицу массы и жесткости в действительные
+		math::MakeCopyMatrix_A_into_B(MassMatrix, MassMatrix_doubleSLAE);
+		math::MakeCopyMatrix_A_into_B(StiffnessMatrix, StiffnessMatrix_doubleSLAE);
+		SLAE_n.Initialization(MassMatrix_doubleSLAE.id_column_for_A_up, MassMatrix_doubleSLAE.id_column_for_A_down);
+		Tmp_matrix.Initialization(MassMatrix_doubleSLAE.id_column_for_A_up, MassMatrix_doubleSLAE.id_column_for_A_down);
+
+		double lambda_Mass = MassMatrix_doubleSLAE.SolveMaxEigenvalue();
+		double lambda_Stiffness = StiffnessMatrix_doubleSLAE.SolveMaxEigenvalue();
+
+		printf_s("\nlambda_M = %.2e\t lambda_K = %.2e\n\n", lambda_Mass, lambda_Stiffness);
+	}
+
+	///-------------------
+	//Point<double> point_for_out(0, 0, 0.5 - 0.01);
+
+	double TIME_L;
+	{
+		double v = solver_grid.GetDomain(0)->forMech.GetLongitudinalWaveVelocity_Vp(solver_grid.GetDomain(0)->forThermal.rpho);
+		double L = 0.5;
+		TIME_L = L / v;
+
+		wchar_t _tmp_wc[1000];
+		math::Char_To_Wchar_t(base_result_directory, _tmp_wc, 1000);
+		CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+
+		for (int i = 0; i < receivers.size(); i++)
+		{
+			double len;
+			int id_elem_for_out = solver_grid.GetNearestElementID(receivers[i].point, len);
+
+			if (id_elem_for_out >= 0)
+			{
+				double min_len = 1e+50;
+				int target_point = -1;
+				auto elem = solver_grid.GetElement(id_elem_for_out);
+				for (int j = 0; j < elem->GetNodesCount(); j++)
+				{
+					double _len = math::SolveLengthVector(receivers[i].point, elem->GetNode(j));
+					if (_len < min_len)
+					{
+						min_len = _len;
+						target_point = elem->GetIdNode(j);
+					}
+				}
+				receivers[i].id_node = target_point;
+			}
+			else
+			{
+				return;
+			}
+
+			FILE* fout_Uz;
+			sprintf_s(receivers[i].file_name, "%s/Uz_in_point_%d.txt", base_result_directory, i);
+			fopen_s(&fout_Uz, receivers[i].file_name, "w");
+			fprintf_s(fout_Uz, "Point: (%.2e, %.2e, %.2e)\n", receivers[i].point.x, receivers[i].point.y, receivers[i].point.z);
+			fprintf_s(fout_Uz, "Id vertex: %d\n", receivers[i].id_node);
+			fprintf_s(fout_Uz, "T0(Z): %.5e sec\n", TIME_L);
+			fclose(fout_Uz);
+		}
+	}
+	///-------------------
+
+	double TIME_curr = TIME_h;
+	for (int id_STEP = start_iteration; id_STEP <= end_iteration; id_STEP++)
+	{
+		TIME_curr += TIME_h;
+		printf_s("\n================= Start solution of %d STEP (time = %.2e) ================\n", id_STEP, TIME_curr);
+		bool is_print_result = false;
+		char result_directory[1000];
+		char result_directory_XZ[1000];
+		char result_directory_XY[1000];
+		char result_directory_YZ[1000];
+		char result_directory_save[1000];
+		if (id_STEP % step_for_out == 0)
+		{
+			is_print_result = true;
+			sprintf_s(result_directory, sizeof(result_directory), "%s", base_result_directory);
+			//sprintf_s(result_directory, sizeof(result_directory), "%s/STEP_%d_t=%.2e", base_result_directory, id_STEP, TIME_curr);
+			wchar_t _tmp_wc[1000];
+			math::Char_To_Wchar_t(result_directory, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+
+
+			sprintf_s(result_directory_XY, sizeof(result_directory_XY), "%s/Plane_XY", base_result_directory);
+			math::Char_To_Wchar_t(result_directory_XY, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+			sprintf_s(result_directory_XZ, sizeof(result_directory_XZ), "%s/Plane_XZ", base_result_directory);
+			math::Char_To_Wchar_t(result_directory_XZ, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+			sprintf_s(result_directory_YZ, sizeof(result_directory_YZ), "%s/Plane_YZ", base_result_directory);
+			math::Char_To_Wchar_t(result_directory_YZ, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+			sprintf_s(result_directory_save, sizeof(result_directory_save), "%s/Saves", base_result_directory);
+			math::Char_To_Wchar_t(result_directory_save, _tmp_wc, 1000);
+			CreateDirectory((LPCTSTR)_tmp_wc, NULL);
+		}
+
+		//переопределяем источник и строим вектор в правую часть (через вторые краевые)
+		CSSD_Matrix<Tensor2Rank3D, Point<double>> SourseVector;
+		SourseVector.F.resize(StiffnessMatrix.F.size());
+		if (true) {
+			std::function<Point<double>(Point<double>)> time_source_condition1 = [TIME_curr, &gauss_source](Point<double> X) -> Point<double>
+			{
+				return gauss_source.value(TIME_curr);
+			};
+			if (gauss_source.is_used)
+			{
+				second_boundary[gauss_source.target_boundary].value = time_source_condition1;
+				for (int i = 0; i < solver_grid.boundary_faces.size(); i++)
+				{
+					solver_grid.boundary_faces[i].boundary_value = second_boundary[solver_grid.boundary_faces[i].id_type].value;
+				}
+			}
+
+			std::function<Point<double>(Point<double>)> time_source_condition2 = [TIME_curr, &linearModulationSin_source](Point<double> X) -> Point<double>
+			{
+				return linearModulationSin_source.value(TIME_curr);
+			};
+			if (linearModulationSin_source.is_used)
+			{
+				second_boundary[linearModulationSin_source.target_boundary].value = time_source_condition2;
+				for (int i = 0; i < solver_grid.boundary_faces.size(); i++)
+				{
+					solver_grid.boundary_faces[i].boundary_value = second_boundary[solver_grid.boundary_faces[i].id_type].value;
+				}
+			}
+
+			for (int id_triangle = 0; id_triangle < solver_grid.boundary_faces.size(); id_triangle++)
+			{
+				std::vector<Point<double>> local_vector_SLAE;
+				solver_grid.boundary_faces[id_triangle].SolveLocalBoundaryVector(local_vector_SLAE, solver_grid.boundary_faces[id_triangle].boundary_value);
+				SourseVector.SummPartOfVector(local_vector_SLAE, *solver_grid.boundary_faces[id_triangle].GetElementDOFs());
+			};
+		}
+
+		auto SolveSLAE = [&SLAE_n, &solver_grid, &clear_vertexes](std::vector<double>& F, std::vector<double>& result, double critical_residual) -> void
+		{
+			//краевые в правую часть и на диагональ большим числом 
+			if (true) {
+				//большое число на диагональ
+				for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+				{
+					auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+					int id_type = boundary->id_type;
+					Point<bool> is_take;
+					Point<double> boundary_value = boundary->boundary_value(is_take, solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
+					int global_id = boundary->GetDOFInLocalID(0);
+
+					auto enter_boundary = [global_id, &boundary_value](int position, CSSD_Matrix<Tensor2Rank3D, Point<double>>& global_SLAE) {
+						global_SLAE.Diag[global_id].val[position][position] = 1e+30;
+					};
+					if (is_take.x == true) SLAE_n.Diag[global_id * 3 + 0] = 1e+30;
+					if (is_take.y == true) SLAE_n.Diag[global_id * 3 + 1] = 1e+30;
+					if (is_take.z == true) SLAE_n.Diag[global_id * 3 + 2] = 1e+30;
+				}
+
+				//добавляем значения в правую часть
+				for (int id_vertex = 0; id_vertex < solver_grid.boundary_vertexes.size(); id_vertex++)
+				{
+					auto boundary = &(solver_grid.boundary_vertexes[id_vertex]);
+
+					int id_type = boundary->id_type;
+					Point<bool> is_take;
+					Point<double> boundary_value = boundary->boundary_value(is_take, solver_grid.boundary_vertexes[id_vertex].GetIdNode(0));
+					int global_id = boundary->GetDOFInLocalID(0);
+
+					if (global_id < SLAE_n.GetMatrixSize() / 3)
+					{
+						auto enter_value = [&result, &F, &SLAE_n](int value_id, double value) ->void
+						{
+							result[value_id] = value;
+							F[value_id] = value * SLAE_n.Diag[value_id];
+							return;
+						};
+
+						if (is_take.x) enter_value(global_id * 3 + 0, boundary_value.x);
+						if (is_take.y) enter_value(global_id * 3 + 1, boundary_value.y);
+						if (is_take.z) enter_value(global_id * 3 + 2, boundary_value.z);
+					}
+
+				}
+				for (int i = 0; i < clear_vertexes.size(); i++)
+				{
+					result[clear_vertexes[i]] = 0;
+					F[clear_vertexes[i]] = 0;
+				}
+			}
+
+			printf("Soluting SLAY... (%d)\n", SLAE_n.GetMatrixSize());
+			int MaxSize = SLAE_n.GetMatrixSize();
+			MaxSize = MaxSize / 10 < 1000 ? 1000 : MaxSize / 10;
+			std::vector<double> best_solution;
+			math::MakeCopyVector_A_into_B(result, best_solution);
+			double current_residual = 1, best_residual = 1e+25;
+			int MAX_STEPS = 4;
+			int ii = 1;
+
+			CSSD_Matrix<double, double> Precond;
+			//Precond.PrecondorSSOR(0.75, SLAE_n);
+
+			double aa = math::MakeInnerProduct(F, F);
+			printf_s("//---> %.2e\n", aa);
+
+			for (int i = 0; i <= MAX_STEPS; i++)
+			{
+				printf_s("//---> I = %d/%d (full size %d) - needed residual %.2e\n", i, MAX_STEPS, SLAE_n.GetMatrixSize(), critical_residual);
+
+				SLAE_n.print_logs = true;
+				//current_residual = abs(SLAE_n.MSG_PreconditioningSSOR(F, result, MaxSize, critical_residual, Precond));
+				current_residual = abs(SLAE_n.MSG(MaxSize, critical_residual, result, F, true));
+
+				if (current_residual <= critical_residual)
+				{
+					best_residual = current_residual;
+					math::MakeCopyVector_A_into_B(result, best_solution);
+					break;
+				}
+				if (current_residual < best_residual)
+				{
+					best_residual = current_residual;
+					math::MakeCopyVector_A_into_B(result, best_solution);
+				}
+			}
+			math::MakeCopyVector_A_into_B(best_solution, result);
+
+			if (best_residual >= 1)
+			{
+				printf_s("There are problems in the solution\n");
+				int a;
+				scanf_s("%d", &a);
+			}
+		};
+
+		//собираем СЛАУ текущего шага
+		{
+			SLAE_n.SummMatrix(MassMatrix_doubleSLAE, 1.0, StiffnessMatrix_doubleSLAE, BETTA_Newmark * TIME_h * TIME_h);
+
+			Tmp_matrix.SummMatrix(MassMatrix_doubleSLAE, -2.0, StiffnessMatrix_doubleSLAE, (1.0 / 2.0 - 2.0 * BETTA_Newmark + GAMMA_Newmark) * TIME_h * TIME_h);
+			std::vector<double> TMPu_prev;
+			Tmp_matrix.MultiplicationMatrixVector(U_prev_d, TMPu_prev);
+
+			Tmp_matrix.SummMatrix(MassMatrix_doubleSLAE, 1.0, StiffnessMatrix_doubleSLAE, (1.0 / 2.0 + BETTA_Newmark - GAMMA_Newmark) * TIME_h * TIME_h);
+			std::vector<double> TMPu_prevprev;
+			Tmp_matrix.MultiplicationMatrixVector(U_prevprev_d, TMPu_prevprev);
+
+			//double aa = math::MakeInnerProduct(SourseVector.F, SourseVector.F);
+			//printf_s("//---> %.2e\n", aa);
+
+			for (int i = 0; i < SourseVector.F.size(); i++)
+			{
+				Point<double> F = VolumeForceVector.F[i] * TIME_h * TIME_h + SourseVector.F[i] * TIME_h * TIME_h;
+				SLAE_n.F[i * 3 + 0] = F.x - TMPu_prev[i * 3 + 0] - TMPu_prevprev[i * 3 + 0];
+				SLAE_n.F[i * 3 + 1] = F.y - TMPu_prev[i * 3 + 1] - TMPu_prevprev[i * 3 + 1];
+				SLAE_n.F[i * 3 + 2] = F.z - TMPu_prev[i * 3 + 2] - TMPu_prevprev[i * 3 + 2];
+			}
+
+			//aa = math::MakeInnerProduct(SLAE_n.F, SLAE_n.F);
+			//printf_s("//---> %.2e\n", aa);
+
+
+		}
+		//Решаем СЛАУ
+		if (id_STEP == 0)
+			math::InitializationVector(SLAE_n.X, 1e-10);
+		else
+			math::MakeCopyVector_A_into_B(U_prev_d, SLAE_n.X);
+		SolveSLAE(SLAE_n.F, SLAE_n.X, 1e-10);
+		math::MakeCopyVector_A_into_B(SLAE_n.X, U_curr);
+
+		//вывод сейсмограммы
+		if (TIME_curr > TIME_L || true)
+		{
+			receivers_times.push_back(TIME_curr);
+			for (int r = 0; r < receivers.size(); r++)
+			{
+				receivers[r].U_in_point.push_back(U_curr[receivers[r].id_node]);
+			}
+		}
+
+		//save reserve solution
+		if (id_STEP % (step_for_out * 10) == 0)
+		{
+			FILE* fout_save;
+			char name_u_save[5000];
+
+			sprintf_s(name_u_save, "%s/U_s%d_t%.2e.dat", result_directory_save, id_STEP, TIME_curr);
+			fopen_s(&fout_save, name_u_save, "w");
+			for (int i = 0; i < U_curr.size(); i++)
+			{
+				fprintf_s(fout_save, "%.16e %.16e %.16e\n", U_curr[i].x, U_curr[i].y, U_curr[i].z);
+			}
+			fclose(fout_save);
+
+			sprintf_s(name_u_save, "%s/U_s%d_t%.2e.dat", result_directory_save, id_STEP - 1, TIME_curr - TIME_h);
+			fopen_s(&fout_save, name_u_save, "w");
+			for (int i = 0; i < U_prev.size(); i++)
+			{
+				fprintf_s(fout_save, "%.16e %.16e %.16e\n", U_prev[i].x, U_prev[i].y, U_prev[i].z);
+			}
+			fclose(fout_save);
+
+			sprintf_s(name_u_save, "%s/U_s%d_t%.2e.dat", result_directory_save, id_STEP - 2, TIME_curr - TIME_h * 2);
+			fopen_s(&fout_save, name_u_save, "w");
+			for (int i = 0; i < U_prevprev.size(); i++)
+			{
+				fprintf_s(fout_save, "%.16e %.16e %.16e\n", U_prevprev[i].x, U_prevprev[i].y, U_prevprev[i].z);
+			}
+			fclose(fout_save);
+		}
+
+		//output solution
+		//without deformations
+		if (is_print_result && id_STEP == start_iteration) {
+			printf_s("Print the mech result into .dat file... ");
+
+			FILE* fout_tech;
+			char name_u_tech[5000];
+			sprintf_s(name_u_tech, "%s/U_deformation_%d_t%.2e.dat", result_directory, id_STEP, TIME_curr);
+			fopen_s(&fout_tech, name_u_tech, "w");
+			char name_in_file[1000];
+			sprintf_s(name_in_file, "step%d_time%.2e", id_STEP, TIME_curr);
+			std::vector<std::vector<char>> name_value(6);
+			char name_v_tmp[6][100];
+			sprintf_s(name_v_tmp[0], "sigma_Mises");
+			sprintf_s(name_v_tmp[1], "sigma_zz");
+			sprintf_s(name_v_tmp[2], "Ux");
+			sprintf_s(name_v_tmp[3], "Uy");
+			sprintf_s(name_v_tmp[4], "Uz");
+			sprintf_s(name_v_tmp[5], "Vz");
+			for (int i = 0; i < name_value.size(); i++)
+			{
+				name_value[i].resize(100);
+				for (int j = 0; j < name_value[i].size(); j++)
+				{
+					name_value[i][j] = name_v_tmp[i][j];
+				}
+			}
+			std::vector<std::vector<double>> value(3 * 2);
+			value[0].resize(solver_grid.GetElementsCount());
+			value[1].resize(solver_grid.GetElementsCount());
+			double sigma_inv_max = 0;
+			int elem_sigma_max = 0;
+			for (int i = 0; i < solver_grid.GetElementsCount(); i++)
+			{
+				auto element = solver_grid.GetElement(i);
+
+				Point<double> Centr = element->GetWeightCentr();
+
+				//Point<double> U = solver_grid.GetSolutionInPoint(i, Centr, U_curr);
+				Point<Point<double>> dU = solver_grid.GetDerevativeFromSolutionInPoint(i, Centr, U_curr);
+				auto Eps = solver_grid.GetStrainTensorFromSolutionInPoint(i, Centr, dU);
+				auto Sigma = solver_grid.GetStressTensorFromSolutionInPoint(i, Centr, Eps);
+				auto MisesSigma = solver_grid.GetVonMisesStress(Sigma);
+
+				auto Eps_inv = sqrt((Eps.val[0][0] - Eps.val[1][1]) * (Eps.val[0][0] - Eps.val[1][1])
+					+ (Eps.val[1][1] - Eps.val[2][2]) * (Eps.val[1][1] - Eps.val[2][2])
+					+ (Eps.val[0][0] - Eps.val[2][2]) * (Eps.val[0][0] - Eps.val[2][2])
+					+ 3 * (Eps.val[0][1] * Eps.val[1][0] + Eps.val[0][2] * Eps.val[2][0] + Eps.val[1][2] * Eps.val[2][1]) / 2.0) * sqrt(2.) / 3.;
+
+				value[0][i] = MisesSigma;
+				value[1][i] = Sigma.val[2][2];
+			}
+			value[2].resize(solver_grid.GetDOFsCount());
+			value[3].resize(solver_grid.GetDOFsCount());
+			value[4].resize(solver_grid.GetDOFsCount());
+			value[5].resize(solver_grid.GetDOFsCount());
+			for (int i = 0; i < value[3].size(); i++)
+			{
+				value[2][i] = U_curr[i].x;
+				value[3][i] = U_curr[i].y;
+				value[4][i] = U_curr[i].z;
+				value[5][i] = (U_curr[i].z - U_prev[i].z) / TIME_h;;
+			}
+
+			//solver_grid.MoveCoordinates(U_curr);
+			solver_grid.printTecPlot3D_DiffDomains(fout_tech, value, name_value, name_in_file, TIME_curr);
+			//solver_grid.ReMoveCoordinates(U_curr);
+			fclose(fout_tech);
+		}
+		//via XY plane
+		if (is_print_result) {
+			math::SimpleGrid grid_XY_plane; //input
+			char in_file[1000];
+			sprintf_s(in_file, "%s/Plane_XY.dat", mesh_directory);
+
+			FILE* fin_mesh;
+			fopen_s(&fin_mesh, in_file, "r");
+			if (fin_mesh != NULL)
+			{
+				fclose(fin_mesh);
+				grid_XY_plane.ReadFromSalomeDat(in_file, 2);
+
+				FILE* fout_tech;
+				char name_u_tech[5000];
+				sprintf_s(name_u_tech, "%s/U_plane_XY_s%d_t%.2e.dat", result_directory_XY, id_STEP, TIME_curr);
+				fopen_s(&fout_tech, name_u_tech, "w");
+				char name_in_file[1000];
+				sprintf_s(name_in_file, "Time_%.4e_XY", TIME_curr);
+				std::vector<std::vector<char>> name_value(6);
+				char name_v_tmp[6][100];
+				sprintf_s(name_v_tmp[0], "sigma_Mises");
+				sprintf_s(name_v_tmp[1], "sigma_xx");
+				sprintf_s(name_v_tmp[2], "Ux");
+				sprintf_s(name_v_tmp[3], "Uy");
+				sprintf_s(name_v_tmp[4], "Uz");
+				sprintf_s(name_v_tmp[5], "Vx");
+				for (int i = 0; i < name_value.size(); i++)
+				{
+					name_value[i].resize(100);
+					for (int j = 0; j < name_value[i].size(); j++)
+					{
+						name_value[i][j] = name_v_tmp[i][j];
+					}
+				}
+				std::vector<std::vector<double>> value(3 * 2);
+				value[0].resize(grid_XY_plane.nvtr.size());
+				value[1].resize(grid_XY_plane.nvtr.size());
+				value[2].resize(grid_XY_plane.nvtr.size());
+				value[3].resize(grid_XY_plane.nvtr.size());
+				value[4].resize(grid_XY_plane.nvtr.size());
+				value[5].resize(grid_XY_plane.nvtr.size());
+				double sigma_inv_max = 0;
+				int elem_sigma_max = 0;
+				for (int i = 0; i < grid_XY_plane.nvtr.size(); i++)
+				{
+					Point<double> Centr;
+					for (int j = 0; j < grid_XY_plane.nvtr[i].size(); j++)
+					{
+						Centr += grid_XY_plane.xyz[grid_XY_plane.nvtr[i][j]];
+					}
+					Centr /= grid_XY_plane.nvtr[i].size();
+
+					double len;
+					int id_elem = solver_grid.GetNearestElementID(Centr, len);
+					if (id_elem >= 0)
+					{
+						auto element = solver_grid.GetElement(id_elem);
+
+						Point<double> U = solver_grid.GetSolutionInPoint(id_elem, Centr, U_curr);
+						Point<double> U_prev_ = solver_grid.GetSolutionInPoint(id_elem, Centr, U_prev);
+						Point<Point<double>> dU = solver_grid.GetDerevativeFromSolutionInPoint(id_elem, Centr, U_curr);
+						auto Eps = solver_grid.GetStrainTensorFromSolutionInPoint(id_elem, Centr, dU);
+						auto Sigma = solver_grid.GetStressTensorFromSolutionInPoint(id_elem, Centr, Eps);
+						auto MisesSigma = solver_grid.GetVonMisesStress(Sigma);
+
+						auto Eps_inv = sqrt((Eps.val[0][0] - Eps.val[1][1]) * (Eps.val[0][0] - Eps.val[1][1])
+							+ (Eps.val[1][1] - Eps.val[2][2]) * (Eps.val[1][1] - Eps.val[2][2])
+							+ (Eps.val[0][0] - Eps.val[2][2]) * (Eps.val[0][0] - Eps.val[2][2])
+							+ 3 * (Eps.val[0][1] * Eps.val[1][0] + Eps.val[0][2] * Eps.val[2][0] + Eps.val[1][2] * Eps.val[2][1]) / 2.0) * sqrt(2.) / 3.;
+
+						value[0][i] = MisesSigma;
+						value[1][i] = Sigma.val[0][0];
+
+						value[2][i] = U.x;
+						value[3][i] = U.y;
+						value[4][i] = U.z;
+						value[5][i] = (U_prev_.x - U.x) / TIME_h;
+					}
+				}
+
+				grid_XY_plane.printTecPlot3D(fout_tech, value, name_value, name_in_file, TIME_curr);
+				fclose(fout_tech);
+			}
+		}
+		//via YZ plane
+		if (is_print_result) {
+			math::SimpleGrid grid_YZ_plane; //input
+			char in_file[1000];
+			sprintf_s(in_file, "%s/Plane_YZ.dat", mesh_directory);
+
+			FILE* fin_mesh;
+			fopen_s(&fin_mesh, in_file, "r");
+			if (fin_mesh != NULL)
+			{
+				fclose(fin_mesh);
+				grid_YZ_plane.ReadFromSalomeDat(in_file, 2);
+
+				FILE* fout_tech;
+				char name_u_tech[5000];
+				sprintf_s(name_u_tech, "%s/U_plane_YZ_s%d_t%.2e.dat", result_directory_YZ, id_STEP, TIME_curr);
+				fopen_s(&fout_tech, name_u_tech, "w");
+				char name_in_file[1000];
+				sprintf_s(name_in_file, "Time_%.4e_YZ", TIME_curr);
+				std::vector<std::vector<char>> name_value(6);
+				char name_v_tmp[6][100];
+				sprintf_s(name_v_tmp[0], "sigma_Mises");
+				sprintf_s(name_v_tmp[1], "sigma_zz");
+				sprintf_s(name_v_tmp[2], "Ux");
+				sprintf_s(name_v_tmp[3], "Uy");
+				sprintf_s(name_v_tmp[4], "Uz");
+				sprintf_s(name_v_tmp[5], "Vz");
+				for (int i = 0; i < name_value.size(); i++)
+				{
+					name_value[i].resize(100);
+					for (int j = 0; j < name_value[i].size(); j++)
+					{
+						name_value[i][j] = name_v_tmp[i][j];
+					}
+				}
+				std::vector<std::vector<double>> value(3 * 2);
+				value[0].resize(grid_YZ_plane.nvtr.size());
+				value[1].resize(grid_YZ_plane.nvtr.size());
+				value[2].resize(grid_YZ_plane.nvtr.size());
+				value[3].resize(grid_YZ_plane.nvtr.size());
+				value[4].resize(grid_YZ_plane.nvtr.size());
+				value[5].resize(grid_YZ_plane.nvtr.size());
+				double sigma_inv_max = 0;
+				int elem_sigma_max = 0;
+				for (int i = 0; i < grid_YZ_plane.nvtr.size(); i++)
+				{
+					Point<double> Centr;
+					for (int j = 0; j < grid_YZ_plane.nvtr[i].size(); j++)
+					{
+						Centr += grid_YZ_plane.xyz[grid_YZ_plane.nvtr[i][j]];
+					}
+					Centr /= grid_YZ_plane.nvtr[i].size();
+
+					double len;
+					int id_elem = solver_grid.GetNearestElementID(Centr, len);
+					if (id_elem >= 0)
+					{
+						auto element = solver_grid.GetElement(id_elem);
+
+						Point<double> U = solver_grid.GetSolutionInPoint(id_elem, Centr, U_curr);
+						Point<double> U_prev_ = solver_grid.GetSolutionInPoint(id_elem, Centr, U_prev);
+						Point<Point<double>> dU = solver_grid.GetDerevativeFromSolutionInPoint(id_elem, Centr, U_curr);
+						auto Eps = solver_grid.GetStrainTensorFromSolutionInPoint(id_elem, Centr, dU);
+						auto Sigma = solver_grid.GetStressTensorFromSolutionInPoint(id_elem, Centr, Eps);
+						auto MisesSigma = solver_grid.GetVonMisesStress(Sigma);
+
+						auto Eps_inv = sqrt((Eps.val[0][0] - Eps.val[1][1]) * (Eps.val[0][0] - Eps.val[1][1])
+							+ (Eps.val[1][1] - Eps.val[2][2]) * (Eps.val[1][1] - Eps.val[2][2])
+							+ (Eps.val[0][0] - Eps.val[2][2]) * (Eps.val[0][0] - Eps.val[2][2])
+							+ 3 * (Eps.val[0][1] * Eps.val[1][0] + Eps.val[0][2] * Eps.val[2][0] + Eps.val[1][2] * Eps.val[2][1]) / 2.0) * sqrt(2.) / 3.;
+
+						value[0][i] = MisesSigma;
+						value[1][i] = Sigma.val[2][2];
+
+						value[2][i] = U.x;
+						value[3][i] = U.y;
+						value[4][i] = U.z;
+						value[5][i] = (U_prev_.z - U.z) / TIME_h;
+					}
+				}
+
+				grid_YZ_plane.printTecPlot3D(fout_tech, value, name_value, name_in_file, TIME_curr);
+				fclose(fout_tech);
+			}
+		}
+		//via XZ plane
+		if (is_print_result) {
+			math::SimpleGrid grid_XZ_plane; //input
+			char in_file[1000];
+			sprintf_s(in_file, "%s/Plane_XZ.dat", mesh_directory);
+
+			FILE* fin_mesh;
+			fopen_s(&fin_mesh, in_file, "r");
+			if (fin_mesh != NULL)
+			{
+				fclose(fin_mesh);
+				grid_XZ_plane.ReadFromSalomeDat(in_file, 2);
+
+				FILE* fout_tech;
+				char name_u_tech[5000];
+				sprintf_s(name_u_tech, "%s/U_plane_XZ_s%d_t%.2e.dat", result_directory_XZ, id_STEP, TIME_curr);
+				fopen_s(&fout_tech, name_u_tech, "w");
+				char name_in_file[1000];
+				sprintf_s(name_in_file, "Time_%.4e_XZ", TIME_curr);
+				std::vector<std::vector<char>> name_value(6);
+				char name_v_tmp[6][100];
+				sprintf_s(name_v_tmp[0], "sigma_Mises");
+				sprintf_s(name_v_tmp[1], "sigma_zz");
+				sprintf_s(name_v_tmp[2], "Ux");
+				sprintf_s(name_v_tmp[3], "Uy");
+				sprintf_s(name_v_tmp[4], "Uz");
+				sprintf_s(name_v_tmp[5], "Vz");
+				for (int i = 0; i < name_value.size(); i++)
+				{
+					name_value[i].resize(100);
+					for (int j = 0; j < name_value[i].size(); j++)
+					{
+						name_value[i][j] = name_v_tmp[i][j];
+					}
+				}
+				std::vector<std::vector<double>> value(3 * 2);
+				value[0].resize(grid_XZ_plane.nvtr.size());
+				value[1].resize(grid_XZ_plane.nvtr.size());
+				value[2].resize(grid_XZ_plane.nvtr.size());
+				value[3].resize(grid_XZ_plane.nvtr.size());
+				value[4].resize(grid_XZ_plane.nvtr.size());
+				value[5].resize(grid_XZ_plane.nvtr.size());
+				double sigma_inv_max = 0;
+				int elem_sigma_max = 0;
+				for (int i = 0; i < grid_XZ_plane.nvtr.size(); i++)
+				{
+					Point<double> Centr;
+					for (int j = 0; j < grid_XZ_plane.nvtr[i].size(); j++)
+					{
+						Centr += grid_XZ_plane.xyz[grid_XZ_plane.nvtr[i][j]];
+					}
+					Centr /= grid_XZ_plane.nvtr[i].size();
+
+					double len;
+					int id_elem = solver_grid.GetNearestElementID(Centr, len);
+					if (id_elem >= 0)
+					{
+						auto element = solver_grid.GetElement(id_elem);
+
+						Point<double> U = solver_grid.GetSolutionInPoint(id_elem, Centr, U_curr);
+						Point<double> U_prev_ = solver_grid.GetSolutionInPoint(id_elem, Centr, U_prev);
+						Point<Point<double>> dU = solver_grid.GetDerevativeFromSolutionInPoint(id_elem, Centr, U_curr);
+						auto Eps = solver_grid.GetStrainTensorFromSolutionInPoint(id_elem, Centr, dU);
+						auto Sigma = solver_grid.GetStressTensorFromSolutionInPoint(id_elem, Centr, Eps);
+						auto MisesSigma = solver_grid.GetVonMisesStress(Sigma);
+
+						auto Eps_inv = sqrt((Eps.val[0][0] - Eps.val[1][1]) * (Eps.val[0][0] - Eps.val[1][1])
+							+ (Eps.val[1][1] - Eps.val[2][2]) * (Eps.val[1][1] - Eps.val[2][2])
+							+ (Eps.val[0][0] - Eps.val[2][2]) * (Eps.val[0][0] - Eps.val[2][2])
+							+ 3 * (Eps.val[0][1] * Eps.val[1][0] + Eps.val[0][2] * Eps.val[2][0] + Eps.val[1][2] * Eps.val[2][1]) / 2.0) * sqrt(2.) / 3.;
+
+						value[0][i] = MisesSigma;
+						value[1][i] = Sigma.val[2][2];
+
+						value[2][i] = U.x;
+						value[3][i] = U.y;
+						value[4][i] = U.z;
+						value[5][i] = (U_prev_.z - U.z) / TIME_h;
+					}
+				}
+
+				grid_XZ_plane.printTecPlot3D(fout_tech, value, name_value, name_in_file, TIME_curr);
+				fclose(fout_tech);
+			}
+		}
+		//U in point
+		if (is_print_result /*&& TIME_curr > TIME_L*/)
+		{
+			for (int r = 0; r < receivers.size(); r++)
+			{
+				FILE* fout_Uz;
+				fopen_s(&fout_Uz, receivers[r].file_name, "a");
+				for (int i = 0; i < receivers[r].U_in_point.size(); i++)
+				{
+					fprintf_s(fout_Uz, "%.10e %.10e %.10e %.10e\n", receivers_times[i], receivers[r].U_in_point[i].x, receivers[r].U_in_point[i].y, receivers[r].U_in_point[i].z);
+				}
+				receivers[r].U_in_point.clear();
+				fclose(fout_Uz);
+			}
+			receivers_times.clear();
+		}
+
+		printf_s("\t complite\n");
+
+		math::MakeCopyVector_A_into_B(U_prev, U_prevprev);
+		math::MakeCopyVector_A_into_B(U_curr, U_prev);
+
+		math::MakeCopyVector_A_into_B(U_prev_d, U_prevprev_d);
+		math::MakeCopyVector_A_into_B(SLAE_n.X, U_prev_d);
+
+		//обновляем сетку
+		if (false) {
+			solver_grid.MoveCoordinates(U_curr);
+			for (int i = 0; i < solver_grid.GetElementsCount(); i++)
+			{
+				solver_grid.GetElement(i)->SolveAlphaMatrix();
+			}
+		}
+	}
+}
+
 void FrostCorrection()
 {
 	char mesh_name[100];
